@@ -4,7 +4,7 @@ dns.setServers(["1.1.1.1", "1.0.0.1", "8.8.8.8"]);
 const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
-const { startCronJobs, runWebScraper } = require('./services/scraper');
+const { startCronJobs, runWebScraper, getScrapingStatus } = require('./services/scraper');
 const Product = require('./models/Product');
 
 
@@ -35,6 +35,7 @@ app.use('/api/prices', pricesRoutes);
 
 // ENDPOINT ΓΙΑ ΤΟ CRON-JOB (Το Κρυφό μας Όπλο για να τρέχει Δωρεάν)
 app.get('/api/force-scrape', (req, res) => {
+    res.status(200).json({ isScraping: getScrapingStatus() });
     // ΠΡΟΣΤΑΣΙΑ: Τρέχει ΜΟΝΟ αν δώσουμε -από τον αυτοματισμό- τον μυστικό κωδικό
     if (req.query.secret !== (process.env.CRON_SECRET || 'MySecretRunKey123')) {
         return res.status(403).json({ message: 'Απαγορεύεται η πρόσβαση. Λάθος Κωδικός Ασφαλείας.' });
@@ -57,6 +58,9 @@ const listRoutes = require('./routes/lists');
 
 app.use('/api/auth', authRoutes);
 app.use('/api/lists', listRoutes);
+
+const recipeRoutes = require('./routes/recipes');
+app.use('/api/recipes', recipeRoutes);
 
 // --- 5. ΑΝΟΙΓΟΥΜΕ ΤΟΝ SERVER (Συμβατότητα με Render) ---
 // Το Render δίνει δικό του PORT, άρα διαβάζουμε πρώτα το env.PORT.
