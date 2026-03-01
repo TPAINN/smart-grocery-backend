@@ -53,14 +53,14 @@ async function extractRecipeData(page, url, chefName) {
 
         const title = recipeData.name;
         const image = Array.isArray(recipeData.image) ? recipeData.image[0] : (recipeData.image?.url || recipeData.image);
-        const ingredients = recipeData.recipeIngredient ||[];
+        const ingredients = recipeData.recipeIngredient || [];
         
         let instructions =[];
         if (recipeData.recipeInstructions) {
             if (Array.isArray(recipeData.recipeInstructions)) {
                 instructions = recipeData.recipeInstructions.map(step => step.text ? step.text.replace(/<[^>]*>?/gm, '') : step).filter(Boolean);
             } else if (typeof recipeData.recipeInstructions === 'string') {
-                instructions =[recipeData.recipeInstructions.replace(/<[^>]*>?/gm, '')];
+                instructions = [recipeData.recipeInstructions.replace(/<[^>]*>?/gm, '')];
             }
         }
 
@@ -87,28 +87,32 @@ async function extractRecipeData(page, url, chefName) {
     }
 }
 
-// 🟢 ΕΠΙΠΕΔΟ 1 & 2: MULTI-CHEF ORCHESTRATOR
+// 🟢 ΕΠΙΠΕΔΟ 1 & 2: MULTI-CHEF ORCHESTRATOR (Αλεξίσφαιρος BFS Crawler)
 async function populateRecipes() {
     console.log("🚀 Εκκίνηση Multi-Chef Recipe Omni-Spider...");
     
+    // Οι στόχοι μας με τους κανόνες πλοήγησης του καθενός
     const TARGET_SITES =[
         {
             chef: 'Άκης Πετρετζίκης',
-            url: 'https://akispetretzikis.com/',
+            startUrl: 'https://akispetretzikis.com/',
             base: 'https://akispetretzikis.com',
-            pattern: '/recipe/'
+            recipePattern: '/recipe/',
+            listPattern: ['/categories', '/tags/']
         },
         {
             chef: 'Αργυρώ Μπαρμπαρίγου',
-            url: 'https://www.argiro.gr/category/syntages/',
+            startUrl: 'https://www.argiro.gr/category/syntages/',
             base: '', // Η Αργυρώ έχει απόλυτα links (https://...)
-            pattern: '/recipe/'
+            recipePattern: '/recipe/',
+            listPattern: ['/category/']
         },
         {
             chef: 'Γιώργος Τσούλης',
-            url: 'https://www.giorgostsoulis.com/syntages',
+            startUrl: 'https://www.giorgostsoulis.com/syntages',
             base: 'https://www.giorgostsoulis.com',
-            pattern: '/syntages/' // Ο Τσούλης τα έχει έτσι
+            recipePattern: '/syntages/',
+            listPattern:[] // Ο Τσούλης τα έχει όλα χύμα, δεν χρειαζόμαστε βάθος 2
         }
     ];
 
@@ -125,15 +129,16 @@ async function populateRecipes() {
         let globalSavedCount = 0;
 
         for (const site of TARGET_SITES) {
-            console.log(`\n🕸️ [Σεφ: ${site.chef}] Σκανάρω τη σελίδα: ${site.url}`);
+            console.log(`\n🕸️ [Σεφ: ${site.chef}] Σκανάρω τη σελίδα: ${site.startUrl}`);
+            let listLinks = new Set();
             let directRecipeLinks = new Set();
 
             try {
-                await page.goto(site.url, { waitUntil: 'domcontentloaded', timeout: 60000 });
+                await page.goto(site.startUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
                 await sleep(2000); 
 
-                // Κάνουμε 3 μικρά PageDowns για να φορτώσουν τα lazy images/links της Αργυρώς και του Τσούλη
-                for(let i=0; i<3; i++) {
+                // Scroll για να εμφανιστούν τα lazy-loaded links (Αργυρώ & Τσούλης)
+                for(let i=0; i<4; i++) {
                     await page.keyboard.press('PageDown');
                     await sleep(500);
                 }
@@ -147,26 +152,57 @@ async function populateRecipes() {
                     
                     if (href.startsWith('/') && site.base !== '') href = site.base + href;
 
-                    // Αν το link ανήκει σε συνταγή βάσει του pattern του σεφ
-                    if (href.includes(site.pattern) && !href.includes('/category/')) {
+                    // Αν είναι URL συνταγής
+                    if (href.includes(site.recipePattern) && !href.includes('/category/')) {
                         directRecipeLinks.add(href);
                     } 
+                    // Αν είναι URL κατηγορίας (Βάθος 2)
+                    else if (site.listPattern.some(p => href.includes(p))) {
+                        listLinks.add(href);
+                    }
                 });
 
-                // Παίρνουμε μέχρι 15 φρέσκες συνταγές από κάθε σεφ (Σύνολο ~45)
-                const finalLinks = Array.from(directRecipeLinks).slice(0, 15); 
-                console.log(`✔️ Βρέθηκαν ${finalLinks.length} συνταγές. Ξεκινάει η Εξαγωγή JSON-LD...`);
+                console.log(`✔️ Βρέθηκαν ${listLinks.size} Σελίδες Λιστών και ${directRecipeLinks.size} Συνταγές στην Αρχική.`);
 
+                // Αν δε βρήκε αρκετές συνταγές (π.χ. στον Άκη), μπαίνει στις Λίστες (ΒΑΘΟΣ 2)
+                if (directRecipeLinks.size < 10 && listLinks.size > 0) {
+                    const targetLists = Array.from(listLinks).slice(0, 4); // Ψάχνει σε 4 λίστες
+                    for (const listUrl of targetLists) {
+                        console.log(`   🔍 [Βάθος 2] Αντλώ από: ${listUrl.replace(site.base, '')}`);
+                        try {
+                            await page.goto(listUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
+                            await sleep(1500);
+                            const listHtml = await page.content();
+                            const $list = cheerio.load(listHtml);
+
+                            $list('a').each((i, el) => {
+                                let href = $list(el).attr('href');
+                                if (href && href.includes(site.recipePattern) && !href.includes('#')) {
+                                    if (href.startsWith('/') && site.base !== '') href = site.base + href;
+                                    directRecipeLinks.add(href);
+                                }
+                            });
+                        } catch (e) {}
+                    }
+                }
+
+                // Παίρνουμε μέχρι 15 φρέσκες συνταγές από κάθε σεφ
+                const finalLinks = Array.from(directRecipeLinks).slice(0, 15); 
+                console.log(`✔️ Θα σκανάρω ${finalLinks.length} συνταγές για τον/την ${site.chef}. Ξεκινάει η Εξαγωγή...`);
+
+                let chefSavedCount = 0;
                 for (const url of finalLinks) {
                     const data = await extractRecipeData(page, url, site.chef);
                     if (data && data.ingredients && data.ingredients.length > 0) {
-                        // FIX: Χρησιμοποιούμε upsert και το Warning του Mongoose εξαφανίζεται
                         await Recipe.findOneAndUpdate({ url: data.url }, { $set: data }, { upsert: true });
-                        process.stdout.write(`\r   💾[${site.chef}] Αποθηκεύτηκε: ${data.title.substring(0, 20)}... (~${data.cost.toFixed(2)}€)        `);
+                        process.stdout.write(`\r   💾 [${site.chef}] Αποθηκεύτηκε: ${data.title.substring(0, 20)}... (~${data.cost.toFixed(2)}€)        `);
+                        chefSavedCount++;
                         globalSavedCount++;
                     }
                     await sleep(800); 
                 }
+                console.log(`\n   ✅ Ολοκληρώθηκε ο/η ${site.chef} με ${chefSavedCount} συνταγές.`);
+
             } catch (e) {
                 console.log(`\n❌ Σφάλμα στον σεφ ${site.chef}: ${e.message}`);
             }
