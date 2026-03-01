@@ -19,7 +19,38 @@ function textContainsOven(instructions) {
     return text.includes('φούρν') || text.includes('ψήνουμε') || text.includes('αντιστάσεις') || text.includes('στους 180') || text.includes('στους 200');
 }
 
-// 🟢 ΕΠΙΠΕΔΟ 3: Ο Γενικός Εξαγωγέας JSON-LD (Λειτουργεί για ΟΛΑ τα sites)
+// 🟢 ΒΑΘΥΣ ΑΛΓΟΡΙΘΜΟΣ ΑΝΑΖΗΤΗΣΗΣ JSON-LD (Λύνει το πρόβλημα του Τσούλη)
+const findRecipeInJson = (obj) => {
+    if (!obj || typeof obj !== 'object') return null;
+    
+    // Αν είναι Array, ψάξε σε κάθε στοιχείο
+    if (Array.isArray(obj)) {
+        for (let item of obj) {
+            const res = findRecipeInJson(item);
+            if (res) return res;
+        }
+    } else {
+        // Αν βρήκαμε τον τύπο Recipe (είτε string είτε array που το περιέχει)
+        let type = obj['@type'];
+        if (type === 'Recipe' || (Array.isArray(type) && type.includes('Recipe'))) {
+            return obj;
+        }
+        // Αν το site χρησιμοποιεί Yoast SEO (έχει @graph array)
+        if (obj['@graph']) {
+            return findRecipeInJson(obj['@graph']);
+        }
+        // Recursive σκάψιμο σε όλα τα κλειδιά
+        for (let key in obj) {
+            if (typeof obj[key] === 'object') {
+                const res = findRecipeInJson(obj[key]);
+                if (res) return res;
+            }
+        }
+    }
+    return null;
+};
+
+// 🟢 ΕΠΙΠΕΔΟ 3: Ο Γενικός Εξαγωγέας
 async function extractRecipeData(page, url, chefName) {
     try {
         await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 });
@@ -31,20 +62,7 @@ async function extractRecipeData(page, url, chefName) {
         $('script[type="application/ld+json"]').each((i, el) => {
             try {
                 const json = JSON.parse($(el).html());
-                const findRecipe = (obj) => {
-                    if (Array.isArray(obj)) {
-                        for (let item of obj) {
-                            if (item['@type'] === 'Recipe') return item;
-                            if (item['@graph']) {
-                                const res = item['@graph'].find(g => g['@type'] === 'Recipe');
-                                if (res) return res;
-                            }
-                        }
-                    } else if (obj['@type'] === 'Recipe') return obj;
-                    else if (obj['@graph']) return obj['@graph'].find(g => g['@type'] === 'Recipe');
-                    return null;
-                };
-                const found = findRecipe(json);
+                const found = findRecipeInJson(json);
                 if (found) recipeData = found;
             } catch(e) {}
         });
@@ -52,7 +70,15 @@ async function extractRecipeData(page, url, chefName) {
         if (!recipeData) return null;
 
         const title = recipeData.name;
-        const image = Array.isArray(recipeData.image) ? recipeData.image[0] : (recipeData.image?.url || recipeData.image);
+        if (!title) return null;
+
+        let image = null;
+        if (recipeData.image) {
+            if (Array.isArray(recipeData.image)) image = recipeData.image[0];
+            else if (typeof recipeData.image === 'object') image = recipeData.image.url;
+            else image = recipeData.image;
+        }
+
         const ingredients = recipeData.recipeIngredient || [];
         
         let instructions =[];
@@ -60,17 +86,17 @@ async function extractRecipeData(page, url, chefName) {
             if (Array.isArray(recipeData.recipeInstructions)) {
                 instructions = recipeData.recipeInstructions.map(step => step.text ? step.text.replace(/<[^>]*>?/gm, '') : step).filter(Boolean);
             } else if (typeof recipeData.recipeInstructions === 'string') {
-                instructions = [recipeData.recipeInstructions.replace(/<[^>]*>?/gm, '')];
+                instructions =[recipeData.recipeInstructions.replace(/<[^>]*>?/gm, '')];
             }
         }
 
         const totalTime = parseISO8601Duration(recipeData.totalTime) || 45;
         const caloriesStr = recipeData.nutrition?.calories || "450";
-        const calories = parseInt(caloriesStr.replace(/\D/g, ''));
+        const calories = parseInt(String(caloriesStr).replace(/\D/g, '')) || 450;
 
         let estimatedCost = 0;
         ingredients.forEach(ing => {
-            const text = ing.toLowerCase();
+            const text = String(ing).toLowerCase();
             if (text.includes('κρέας') || text.includes('κοτόπουλο') || text.includes('σολομ') || text.includes('κιμά') || text.includes('μοσχάρ')) estimatedCost += 3.5;
             else if (text.includes('τυρί') || text.includes('λάδι') || text.includes('βούτυρο')) estimatedCost += 1.2;
             else estimatedCost += 0.4;
@@ -87,32 +113,53 @@ async function extractRecipeData(page, url, chefName) {
     }
 }
 
-// 🟢 ΕΠΙΠΕΔΟ 1 & 2: MULTI-CHEF ORCHESTRATOR (Αλεξίσφαιρος BFS Crawler)
+// 🟢 ΕΠΙΠΕΔΟ 1 & 2: MULTI-CHEF ORCHESTRATOR (Deep Crawl - Βάθος 2 για ΟΛΟΥΣ)
 async function populateRecipes() {
-    console.log("🚀 Εκκίνηση Multi-Chef Recipe Omni-Spider...");
+    console.log("🚀 Εκκίνηση Multi-Chef Recipe Omni-Spider (Βάθος 2 για όλους)...");
     
-    // Οι στόχοι μας με τους κανόνες πλοήγησης του καθενός
+    // 🎯 Ρυθμίσεις Στόχευσης ανά Σεφ
     const TARGET_SITES =[
         {
             chef: 'Άκης Πετρετζίκης',
-            startUrl: 'https://akispetretzikis.com/',
+            startUrls:['https://akispetretzikis.com/'],
             base: 'https://akispetretzikis.com',
             recipePattern: '/recipe/',
-            listPattern: ['/categories', '/tags/']
+            listPattern:['/categories', '/tags/']
         },
         {
             chef: 'Αργυρώ Μπαρμπαρίγου',
-            startUrl: 'https://www.argiro.gr/category/syntages/',
-            base: '', // Η Αργυρώ έχει απόλυτα links (https://...)
+            startUrls:['https://www.argiro.gr/category/syntages/'],
+            base: '', 
             recipePattern: '/recipe/',
             listPattern: ['/category/']
         },
         {
             chef: 'Γιώργος Τσούλης',
-            startUrl: 'https://www.giorgostsoulis.com/syntages',
+            startUrls:['https://www.giorgostsoulis.com/syntages'],
             base: 'https://www.giorgostsoulis.com',
             recipePattern: '/syntages/',
-            listPattern:[] // Ο Τσούλης τα έχει όλα χύμα, δεν χρειαζόμαστε βάθος 2
+            listPattern:['/katigories/']
+        },
+        {
+            chef: 'Γιάννης Λουκάκος',
+            startUrls:['https://yiannislucacos.gr/recipes/pantry'],
+            base: 'https://yiannislucacos.gr',
+            recipePattern: '/recipe/',
+            listPattern:['/recipes/']
+        },
+        {
+            chef: 'Πάνος Ιωαννίδης',
+            startUrls: ['https://www.panosioannidis.com/recipes/'],
+            base: 'https://www.panosioannidis.com',
+            recipePattern: '/recipe/',
+            listPattern: ['/recipe-categories/', '/recipes/']
+        },
+        {
+            chef: 'Στέλιος Παρλιάρος',
+            startUrls:['https://www.steliosparliaros.gr/suntages/'],
+            base: '',
+            recipePattern: '/suntages/',
+            listPattern:['/category/', '/suntages/']
         }
     ];
 
@@ -129,86 +176,97 @@ async function populateRecipes() {
         let globalSavedCount = 0;
 
         for (const site of TARGET_SITES) {
-            console.log(`\n🕸️ [Σεφ: ${site.chef}] Σκανάρω τη σελίδα: ${site.startUrl}`);
-            let listLinks = new Set();
+            console.log(`\n👨‍🍳 [Σεφ: ${site.chef}] Εκκίνηση σάρωσης...`);
             let directRecipeLinks = new Set();
+            let listLinks = new Set();
 
-            try {
-                await page.goto(site.startUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
-                await sleep(2000); 
+            // 🕸️ ΒΗΜΑ 1: Σάρωση των Αρχικών Σελίδων (Depth 1)
+            for (const startUrl of site.startUrls) {
+                console.log(`   🕸️ [Βάθος 1] Σκανάρω Αρχική: ${startUrl}`);
+                try {
+                    await page.goto(startUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
+                    await sleep(2000); 
 
-                // Scroll για να εμφανιστούν τα lazy-loaded links (Αργυρώ & Τσούλης)
-                for(let i=0; i<4; i++) {
-                    await page.keyboard.press('PageDown');
-                    await sleep(500);
-                }
-                
-                const html = await page.content();
-                const $home = cheerio.load(html);
-                
-                $home('a').each((i, el) => {
-                    let href = $home(el).attr('href');
-                    if (!href || href.includes('#') || href.includes('?')) return;
+                    // Ελαφρύ Scroll για Lazy Loading
+                    for(let i=0; i<4; i++) {
+                        await page.keyboard.press('PageDown');
+                        await sleep(400);
+                    }
                     
-                    if (href.startsWith('/') && site.base !== '') href = site.base + href;
+                    const html = await page.content();
+                    const $home = cheerio.load(html);
+                    
+                    $home('a').each((i, el) => {
+                        let href = $home(el).attr('href');
+                        if (!href || href.includes('#') || href.includes('?')) return;
+                        
+                        if (href.startsWith('/') && site.base !== '') href = site.base + href;
 
-                    // Αν είναι URL συνταγής
-                    if (href.includes(site.recipePattern) && !href.includes('/category/')) {
-                        directRecipeLinks.add(href);
-                    } 
-                    // Αν είναι URL κατηγορίας (Βάθος 2)
-                    else if (site.listPattern.some(p => href.includes(p))) {
-                        listLinks.add(href);
-                    }
-                });
-
-                console.log(`✔️ Βρέθηκαν ${listLinks.size} Σελίδες Λιστών και ${directRecipeLinks.size} Συνταγές στην Αρχική.`);
-
-                // Αν δε βρήκε αρκετές συνταγές (π.χ. στον Άκη), μπαίνει στις Λίστες (ΒΑΘΟΣ 2)
-                if (directRecipeLinks.size < 10 && listLinks.size > 0) {
-                    const targetLists = Array.from(listLinks).slice(0, 4); // Ψάχνει σε 4 λίστες
-                    for (const listUrl of targetLists) {
-                        console.log(`   🔍 [Βάθος 2] Αντλώ από: ${listUrl.replace(site.base, '')}`);
-                        try {
-                            await page.goto(listUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
-                            await sleep(1500);
-                            const listHtml = await page.content();
-                            const $list = cheerio.load(listHtml);
-
-                            $list('a').each((i, el) => {
-                                let href = $list(el).attr('href');
-                                if (href && href.includes(site.recipePattern) && !href.includes('#')) {
-                                    if (href.startsWith('/') && site.base !== '') href = site.base + href;
-                                    directRecipeLinks.add(href);
-                                }
-                            });
-                        } catch (e) {}
-                    }
-                }
-
-                // Παίρνουμε μέχρι 15 φρέσκες συνταγές από κάθε σεφ
-                const finalLinks = Array.from(directRecipeLinks).slice(0, 15); 
-                console.log(`✔️ Θα σκανάρω ${finalLinks.length} συνταγές για τον/την ${site.chef}. Ξεκινάει η Εξαγωγή...`);
-
-                let chefSavedCount = 0;
-                for (const url of finalLinks) {
-                    const data = await extractRecipeData(page, url, site.chef);
-                    if (data && data.ingredients && data.ingredients.length > 0) {
-                        await Recipe.findOneAndUpdate({ url: data.url }, { $set: data }, { upsert: true });
-                        process.stdout.write(`\r   💾 [${site.chef}] Αποθηκεύτηκε: ${data.title.substring(0, 20)}... (~${data.cost.toFixed(2)}€)        `);
-                        chefSavedCount++;
-                        globalSavedCount++;
-                    }
-                    await sleep(800); 
-                }
-                console.log(`\n   ✅ Ολοκληρώθηκε ο/η ${site.chef} με ${chefSavedCount} συνταγές.`);
-
-            } catch (e) {
-                console.log(`\n❌ Σφάλμα στον σεφ ${site.chef}: ${e.message}`);
+                        // 1. Είναι Συνταγή; (Και σιγουρευόμαστε ότι δεν είναι κατά λάθος λίστα)
+                        if (href.includes(site.recipePattern) && !href.includes('category') && !href.includes('tag')) {
+                            directRecipeLinks.add(href);
+                        } 
+                        // 2. Είναι Λίστα/Κατηγορία; (Για το Βάθος 2)
+                        else if (site.listPattern.some(p => href.includes(p))) {
+                            listLinks.add(href);
+                        }
+                    });
+                } catch(e) {}
             }
+
+            console.log(`   ✔️ Βρέθηκαν ${listLinks.size} Κατηγορίες & ${directRecipeLinks.size} Συνταγές στην Αρχική.`);
+
+            // 🕸️ ΒΗΜΑ 2: Βουτιά στις Κατηγορίες (Depth 2)
+            // Επιλέγουμε 4 δυναμικές κατηγορίες (για να μην κρασάρει ο server από το βάρος)
+            const targetLists = Array.from(listLinks).slice(0, 4); 
+            
+            for (const listUrl of targetLists) {
+                console.log(`   🔍 [Βάθος 2] Αντλώ από: ${listUrl.replace(site.base, '')}`);
+                try {
+                    await page.goto(listUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
+                    await sleep(1500);
+
+                    // Scroll μέσα στην κατηγορία
+                    for(let i=0; i<3; i++) {
+                        await page.keyboard.press('PageDown');
+                        await sleep(400);
+                    }
+
+                    const listHtml = await page.content();
+                    const $list = cheerio.load(listHtml);
+
+                    $list('a').each((i, el) => {
+                        let href = $list(el).attr('href');
+                        if (href && href.includes(site.recipePattern) && !href.includes('#')) {
+                            if (href.startsWith('/') && site.base !== '') href = site.base + href;
+                            if (!href.includes('category') && !href.includes('tag')) {
+                                directRecipeLinks.add(href);
+                            }
+                        }
+                    });
+                } catch (e) {}
+            }
+
+            // 💾 ΒΗΜΑ 3: Εξαγωγή JSON-LD
+            // Παίρνουμε μέχρι 12 συνταγές από κάθε σεφ (Σύνολο: ~72 συνταγές ανά run)
+            const finalLinks = Array.from(directRecipeLinks).slice(0, 12); 
+            console.log(`   ⏳ Ξεκινάει η Εξαγωγή για ${finalLinks.length} Μοναδικές Συνταγές...`);
+
+            let chefSavedCount = 0;
+            for (const url of finalLinks) {
+                const data = await extractRecipeData(page, url, site.chef);
+                if (data && data.ingredients && data.ingredients.length > 0) {
+                    await Recipe.findOneAndUpdate({ url: data.url }, { $set: data }, { upsert: true });
+                    process.stdout.write(`\r      💾 Αποθηκεύτηκε: ${data.title.substring(0, 20)}... (~${data.cost.toFixed(2)}€)        `);
+                    chefSavedCount++;
+                    globalSavedCount++;
+                }
+                await sleep(800); // Ήπιος ρυθμός για να μην μας μπλοκάρουν
+            }
+            console.log(`\n   ✅ Ολοκληρώθηκε ο/η ${site.chef} με ${chefSavedCount} επιτυχείς εξαγωγές.`);
         }
 
-        console.log(`\n\n🎉 ΤΕΛΟΣ! Η Βάση Δεδομένων ενημερώθηκε με ${globalSavedCount} Premium Συνταγές (Από 3 διαφορετικούς Σεφ!).`);
+        console.log(`\n\n🎉 ΤΕΛΟΣ! Η Βάση Δεδομένων εμπλουτίστηκε με ${globalSavedCount} Premium Συνταγές.`);
 
     } catch (error) {
         console.error("\n❌ Κρίσιμο Σφάλμα Omni-Spider:", error.message);
