@@ -1,20 +1,33 @@
-require('dotenv').config(); // Προστέθηκε για να διαβάζει το .env
-
+// runAll.js
 const dns = require("node:dns/promises");
 dns.setServers(["1.1.1.1", "1.0.0.1", "8.8.8.8"]);
+require('dotenv').config();
 const mongoose = require('mongoose');
-const Product = require('./models/Product');
 
-const dbURI = process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/smart_grocery';
+const { runLinkCrawler } = require('./services/linkCrawler');
+const { runWebScraper } = require('./services/scraper');
+const { populateRecipes } = require('./services/recipeScraper');
 
-mongoose.connect(dbURI)
-    .then(async () => {
-        console.log("📦 Συνδέθηκε στη βάση δεδομένων (Atlas)... Διαγραφή όλων των προϊόντων!");
-        await Product.deleteMany({});
-        console.log("✅ Η βάση καθάρισε πλήρως! Είναι σαν καινούργια.");
-        process.exit(0);
-    })
-    .catch(err => {
-        console.error("❌ Αποτυχία σύνδεσης:", err);
-        process.exit(1);
-    });
+(async () => {
+    console.log("🚀 ΕΚΚΙΝΗΣΗ ΤΟΥ ΑΠΟΛΥΤΟΥ MASTER ORCHESTRATOR 🚀\n");
+
+    const dbURI = process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/smart_grocery';
+    await mongoose.connect(dbURI);
+    console.log("📦 [1/5] Συνδέθηκε στη MongoDB (Atlas) επιτυχώς.");
+
+    // Βάζουμε πρώτες τις συνταγές γιατί είναι ελαφριές και γρήγορες
+    console.log("\n👨‍🍳 [2/5] Εκκίνηση Multi-Chef Recipe Scraper...");
+    await populateRecipes();
+
+    console.log("\n🕸️ [3/5] Εκκίνηση Omni-Spider (Εύρεση Links για ΑΒ Βασιλόπουλο)...");
+    await runLinkCrawler();
+
+    console.log("\n🛒 [4/5] Εκκίνηση Stealth Cluster (ΜΟΝΟ για ΑΒ Βασιλόπουλο)...");
+    await runWebScraper('ab');
+
+    console.log("\n🛒 [5/5] Εκκίνηση Stealth Cluster (Για τα υπόλοιπα 6 Supermarkets)...");
+    await runWebScraper('rest');
+
+    console.log("\n✅ ΟΛΕΣ ΟΙ ΔΙΕΡΓΑΣΙΕΣ ΟΛΟΚΛΗΡΩΘΗΚΑΝ ΕΠΙΤΥΧΩΣ. Κλείσιμο Συστήματος.");
+    process.exit(0);
+})();
