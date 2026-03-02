@@ -147,20 +147,6 @@ async function populateRecipes() {
             recipePattern: '/recipe/',
             listPattern:['/recipes/']
         },
-        {
-            chef: 'Πάνος Ιωαννίδης',
-            startUrls: ['https://www.panosioannidis.com/recipes/'],
-            base: 'https://www.panosioannidis.com',
-            recipePattern: '/recipe/',
-            listPattern: ['/recipe-categories/', '/recipes/']
-        },
-        {
-            chef: 'Στέλιος Παρλιάρος',
-            startUrls:['https://www.steliosparliaros.gr/suntages/'],
-            base: '',
-            recipePattern: '/suntages/',
-            listPattern:['/category/', '/suntages/']
-        }
     ];
 
     let browser;

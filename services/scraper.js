@@ -331,7 +331,7 @@ async function runWebScraper(targetStore = null) {
 
     const cluster = await Cluster.launch({
         concurrency: Cluster.CONCURRENCY_PAGE, 
-        maxConcurrency: 2, // Αν το λαπτοπ είναι γρήγορο, κάντο 3!
+        maxConcurrency: 20, // Αν το λαπτοπ είναι γρήγορο, κάντο 3!
         timeout: 600000, 
         puppeteerOptions: {
             headless: "new",
