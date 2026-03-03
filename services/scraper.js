@@ -86,8 +86,15 @@ const extractDataInBrowser = (storeName, config) => {
         const priceEl = card.querySelector(config.price) || card.querySelector('[class*="price"]');
         if (priceEl) priceNum = parsePrice(priceEl.textContent || priceEl.innerText);
         if (!priceNum && storeName === 'ΑΒ Βασιλόπουλος' && priceEl) {
-            const rawText = (priceEl.textContent || '').replace(/\D/g, ''); 
-            if (rawText.length >= 3) priceNum = parseInt(rawText) / 100;
+            const abText = (priceEl.textContent || priceEl.innerText || '').trim();
+            // Πιάνει μοτίβα του τύπου "2,50" ή "2.50" πριν το σύμβολο €
+            const abMatch = abText.match(/(\d+[,.]\d{2})/);
+            if (abMatch) {
+                priceNum = parseFloat(abMatch[1].replace(',', '.'));
+            } else {
+                const rawText = abText.replace(/\D/g, ''); 
+                if (rawText.length >= 3 && rawText.length < 5) priceNum = parseInt(rawText) / 100;
+            }
         }
         if (config.oldPrice) {
             const oldPriceEl = card.querySelector(config.oldPrice);
