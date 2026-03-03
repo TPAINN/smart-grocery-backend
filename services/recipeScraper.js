@@ -4,6 +4,16 @@ const StealthPlugin = require('puppeteer-extra-plugin-stealth');
 puppeteer.use(StealthPlugin());
 const cheerio = require('cheerio');
 const Recipe = require('../models/Recipe');
+const decodeHTMLEntities = (text) => {
+    if (!text) return '';
+    return text.replace(/&nbsp;/g, ' ')
+               .replace(/&deg;/gi, '°')
+               .replace(/&amp;/g, '&')
+               .replace(/&quot;/g, '"')
+               .replace(/&#039;/g, "'")
+               .replace(/<[^>]*>?/gm, '') // Αφαιρεί εντελώς orphan HTML tags (<br>, <strong>)
+               .trim();
+};
 
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -67,11 +77,41 @@ async function extractRecipeData(page, url, chefName) {
             } catch(e) {}
         });
 
-        if (!recipeData) return null;
+        // 🟢 NΕΟ: Fallback Parser (Αν το Site δεν έχει JSON-LD Schema)
+        if (!recipeData) {
+            const fbTitle = $('h1').first().text() || $('h3').first().text();
+            if (!fbTitle) return null;
 
-        const title = recipeData.name;
-        if (!title) return null;
+            const fbImage = $('.single_recipe__main_image img').attr('src') || 
+                            $('img[src*="recipe"]').attr('src') || 
+                            $('img[src*="storage/media"]').attr('src');
+            
+            let fbIng =[];
+            $('.ingredients__item label, .ingredients li, .ingredient-list li, .field--name-field-ingredients li').each((i, el) => {
+                fbIng.push($(el).text());
+            });
 
+            let fbInstr =[];
+            $('.instructions li, .preparation li, .recipe-steps p, .step-title').each((i, el) => {
+                fbInstr.push($(el).text());
+            });
+
+            let timeText = $('.cook-time, .cooking_time, .time').text() || '45';
+            let fbTime = parseInt(timeText.replace(/\D/g, '')) || 45;
+
+            recipeData = {
+                name: fbTitle,
+                image: fbImage,
+                recipeIngredient: fbIng,
+                recipeInstructions: fbInstr,
+                totalTime: fbTime
+            };
+        }
+
+        if (!recipeData || !recipeData.name) return null;
+
+        const title = decodeHTMLEntities(recipeData.name);
+        
         let image = null;
         if (recipeData.image) {
             if (Array.isArray(recipeData.image)) image = recipeData.image[0];
@@ -79,25 +119,26 @@ async function extractRecipeData(page, url, chefName) {
             else image = recipeData.image;
         }
 
-        const ingredients = recipeData.recipeIngredient || [];
+        const ingredients = (recipeData.recipeIngredient ||[]).map(decodeHTMLEntities);
         
         let instructions =[];
         if (recipeData.recipeInstructions) {
-            if (Array.isArray(recipeData.recipeInstructions)) {
-                instructions = recipeData.recipeInstructions.map(step => step.text ? step.text.replace(/<[^>]*>?/gm, '') : step).filter(Boolean);
-            } else if (typeof recipeData.recipeInstructions === 'string') {
-                instructions =[recipeData.recipeInstructions.replace(/<[^>]*>?/gm, '')];
-            }
+            const rawInstr = Array.isArray(recipeData.recipeInstructions) 
+                ? recipeData.recipeInstructions.map(step => step.text || step) 
+                : [recipeData.recipeInstructions];
+            instructions = rawInstr.map(decodeHTMLEntities).filter(Boolean);
         }
 
-        const totalTime = parseISO8601Duration(recipeData.totalTime) || 45;
-        const caloriesStr = recipeData.nutrition?.calories || "450";
-        const calories = parseInt(String(caloriesStr).replace(/\D/g, '')) || 450;
+        const totalTime = (typeof recipeData.totalTime === 'string') 
+            ? (parseISO8601Duration(recipeData.totalTime) || 45) 
+            : (recipeData.totalTime || 45);
+
+        const calories = 450; // Μπορεί να κρατηθεί στατικό ανλείπουν tags
 
         let estimatedCost = 0;
         ingredients.forEach(ing => {
             const text = String(ing).toLowerCase();
-            if (text.includes('κρέας') || text.includes('κοτόπουλο') || text.includes('σολομ') || text.includes('κιμά') || text.includes('μοσχάρ')) estimatedCost += 3.5;
+            if (text.includes('κρέας') || text.includes('κοτόπουλο') || text.includes('σολομ') || text.includes('κιμά')) estimatedCost += 3.5;
             else if (text.includes('τυρί') || text.includes('λάδι') || text.includes('βούτυρο')) estimatedCost += 1.2;
             else estimatedCost += 0.4;
         });
