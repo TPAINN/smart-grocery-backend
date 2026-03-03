@@ -54,18 +54,45 @@ const drawProgressBar = (current, total, storeName) => {
     process.stdout.write(`\r[${bar}] ${percent}% | 🛒 ${storeName} | ✅ ${current}/${total} Σελίδες ολοκληρώθηκαν`);
 };
 
-// 🟢 NΕΟ: Το endpoint ραντάρ (αν δουλεύει o scraper να το βλέπει το Frontend)
-let globalIsScraping = false; 
-
-// Ο Extractor (Παραμένει ίδιος - είναι τέλειος)
+// 🟢 O ΑΠΟΛΥΤΟΣ EXTRACTOR (Fix για τις τιμές ΑΒ Βασιλόπουλου)
 const extractDataInBrowser = (storeName, config) => {
     const products =[];
+    
+    // 🧠 SMART PRICE PARSER
     const parsePrice = (text) => {
         if (!text) return null;
-        const raw = text.replace(/[^\d,.-]/g, '').replace(',', '.');
-        const match = raw.match(/(\d+(\.\d+)?)/);
-        return match ? parseFloat(match[1]) : null;
+        
+        // 1. Απομονώνουμε την τιμή συσκευασίας (συχνά η τιμή κιλού είναι δίπλα στο ίδιο text)
+        // Κόβουμε τα πάντα μετά το πρώτο "€"
+        let baseText = text.replace(/\s+/g, ' ').split('€')[0].trim();
+        
+        // 2. Κρατάμε ΜΟΝΟ αριθμούς, τελείες και κόμματα
+        let cleanText = baseText.replace(/[^\d,.]/g, '');
+        if (!cleanText) return null;
+
+        // 3. ΠΕΡΙΠΤΩΣΗ 1: Υπάρχει κανονικά κόμμα ή τελεία
+        if (cleanText.includes(',') || cleanText.includes('.')) {
+            cleanText = cleanText.replace(',', '.');
+            let finalNum = parseFloat(cleanText);
+            
+            // Sanity Check: Αν βγήκε 250.00 λόγω κακού text content, το ρίχνουμε στα φυσιολογικά
+            if (finalNum > 300) return finalNum / 100;
+            return finalNum;
+        } 
+        
+        // 4. ΠΕΡΙΠΤΩΣΗ 2 (ΤΟ BUG ΤΟΥ ΑΒ): Το DOM μας έδωσε τα ψηφία κολλητά (π.χ. "250")
+        const num = parseInt(cleanText, 10);
+        if (isNaN(num)) return null;
+
+        // Στα Supermarket, μια τιμή > 99€ (χωρίς δεκαδικά) είναι πρακτικά αδύνατη.
+        // Ειδικά στον ΑΒ, πάντα εκφράζεται σε λεπτά όταν λείπει το κόμμα.
+        if (num > 99 || storeName === 'ΑΒ Βασιλόπουλος') {
+            return num / 100;
+        }
+        
+        return num;
     };
+
     let cards = Array.from(document.querySelectorAll(config.card));
     if (cards.length === 0) {
         let anchorEls = Array.from(document.querySelectorAll(config.name));
@@ -75,31 +102,31 @@ const extractDataInBrowser = (storeName, config) => {
             if (wrapper && !cards.includes(wrapper)) cards.push(wrapper);
         });
     }
+    
     cards.forEach(card => {
         let name = '', priceNum = null, oldPriceNum = null, isSale = false, is1plus1 = false, imgUrl = null;
+        
+        // Όνομα
         const nameEl = card.querySelector(config.name) || card.querySelector('h2, h3, h4, [class*="title"],[data-qa-label*="title"]');
         if (nameEl) name = (nameEl.textContent || nameEl.innerText || '').trim();
         if (!name && storeName === 'ΑΒ Βασιλόπουλος') {
             const abName = card.querySelector('[data-testid="product-name"]');
             if (abName) name = (abName.textContent || '').trim();
         }
+        
+        // Τιμή
         const priceEl = card.querySelector(config.price) || card.querySelector('[class*="price"]');
-        if (priceEl) priceNum = parsePrice(priceEl.textContent || priceEl.innerText);
-        if (!priceNum && storeName === 'ΑΒ Βασιλόπουλος' && priceEl) {
-            const abText = (priceEl.textContent || priceEl.innerText || '').trim();
-            // Πιάνει μοτίβα του τύπου "2,50" ή "2.50" πριν το σύμβολο €
-            const abMatch = abText.match(/(\d+[,.]\d{2})/);
-            if (abMatch) {
-                priceNum = parseFloat(abMatch[1].replace(',', '.'));
-            } else {
-                const rawText = abText.replace(/\D/g, ''); 
-                if (rawText.length >= 3 && rawText.length < 5) priceNum = parseInt(rawText) / 100;
-            }
+        if (priceEl) {
+            priceNum = parsePrice(priceEl.innerText || priceEl.textContent);
         }
+        
+        // Παλιά Τιμή (αν υπάρχει)
         if (config.oldPrice) {
             const oldPriceEl = card.querySelector(config.oldPrice);
-            if (oldPriceEl) oldPriceNum = parsePrice(oldPriceEl.textContent || oldPriceEl.innerText);
+            if (oldPriceEl) oldPriceNum = parsePrice(oldPriceEl.innerText || oldPriceEl.textContent);
         }
+        
+        // Προσφορές
         if (config.promo) {
             const promos = card.querySelectorAll(config.promo);
             promos.forEach(p => {
@@ -108,14 +135,19 @@ const extractDataInBrowser = (storeName, config) => {
                 if (pText.includes('1+1') || pText.includes('δωρο')) { is1plus1 = true; isSale = true; }
             });
         }
+        
+        // Εικόνα
         const imgEl = card.querySelector('img');
         if (imgEl) imgUrl = imgEl.src || imgEl.getAttribute('data-src');
+        
+        // Αποθήκευση ΜΟΝΟ αν η τιμή είναι έγκυρη
         if (name && priceNum && priceNum > 0) {
             name = name.replace(/(το τεμάχιο|το τεμαχιο|συσκευασία|συσκευασια)/gi, '').trim();
             const normalizedName = name.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
             products.push({ name, normalizedName, supermarket: storeName, price: priceNum, oldPrice: oldPriceNum, isOnSale: isSale, is1plus1: is1plus1, imageUrl: imgUrl });
         }
     });
+    
     return products;
 };
 
