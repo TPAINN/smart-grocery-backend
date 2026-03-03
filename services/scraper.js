@@ -117,7 +117,7 @@ const extractDataInBrowser = (storeName, config) => {
         // Τιμή
         const priceEl = card.querySelector(config.price) || card.querySelector('[class*="price"]');
         if (priceEl) {
-            priceNum = parsePrice(priceEl.innerText || priceEl.textContent);
+            if (storeName === 'ΑΒ Βασιλόπουλος') {
                 // Παίρνουμε μόνο τους αριθμούς (π.χ. "2,50€" -> "250") και διαιρούμε με 100
                 const digits = (priceEl.innerText || priceEl.textContent || '').replace(/\D/g, '');
                 if (digits) priceNum = parseInt(digits, 10) / 100;
