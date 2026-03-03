@@ -338,15 +338,27 @@ async function runWebScraper(targetStore = null) {
 
     const cluster = await Cluster.launch({
         concurrency: Cluster.CONCURRENCY_PAGE, 
-        maxConcurrency: 20, // Αν το λαπτοπ είναι γρήγορο, κάντο 3!
+        maxConcurrency: 1, // Αν το λαπτοπ είναι γρήγορο, κάντο 3!
         timeout: 600000, 
         puppeteerOptions: {
             headless: "new",
             defaultViewport: null, 
             args:[
-                '--no-sandbox', '--disable-setuid-sandbox', '--disable-blink-features=AutomationControlled',
-                '--disable-web-security', '--disable-features=IsolateOrigins,site-per-process',
-                '--disable-gpu', '--disable-dev-shm-usage', '--no-first-run', '--no-zygote'
+                '--no-sandbox', 
+                '--disable-setuid-sandbox', 
+                '--disable-blink-features=AutomationControlled',
+                '--disable-web-security', 
+                '--disable-features=IsolateOrigins,site-per-process',
+                '--disable-gpu', 
+                '--disable-dev-shm-usage', 
+                '--no-first-run', 
+                '--no-zygote',
+                // 🟢 ΝΕΑ ΠΡΟΣΘΗΚΗ: Κρισιμα για Render Free Plan (512MB RAM)
+                '--single-process',             // Αναγκάζει το Chromium να τρέξει σε 1 process (τεράστια οικονομία RAM)
+                '--disable-extensions',         // Απενεργοποιεί extensions που τρώνε μνήμη
+                '--js-flags="--max-old-space-size=256"', // Περιορίζει τη χρήση JS memory για να μην κρασάρει το instance
+                '--disable-notifications',      // Απενεργοποιεί popups
+                '--no-default-browser-check'    // Γλιτώνει χρόνο εκκίνησης
             ]
         }
     });
