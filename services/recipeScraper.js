@@ -158,36 +158,15 @@ async function extractRecipeData(page, url, chefName) {
 async function populateRecipes() {
     console.log("🚀 Εκκίνηση Multi-Chef Recipe Omni-Spider (Βάθος 2 για όλους)...");
     
-    // 🎯 Ρυθμίσεις Στόχευσης ανά Σεφ
+    // 🎯 Ρυθμίσεις Στόχευσης (ΜΟΝΟ ΑΚΗΣ ΓΙΑ STABILITY)
     const TARGET_SITES =[
         {
             chef: 'Άκης Πετρετζίκης',
             startUrls:['https://akispetretzikis.com/'],
             base: 'https://akispetretzikis.com',
             recipePattern: '/recipe/',
-            listPattern:['/categories', '/tags/']
-        },
-        {
-            chef: 'Αργυρώ Μπαρμπαρίγου',
-            startUrls:['https://www.argiro.gr/category/syntages/'],
-            base: '', 
-            recipePattern: '/recipe/',
-            listPattern: ['/category/']
-        },
-        {
-            chef: 'Γιώργος Τσούλης',
-            startUrls:['https://www.giorgostsoulis.com/syntages'],
-            base: 'https://www.giorgostsoulis.com',
-            recipePattern: '/syntages/',
-            listPattern:['/katigories/']
-        },
-        {
-            chef: 'Γιάννης Λουκάκος',
-            startUrls:['https://yiannislucacos.gr/recipes/pantry'],
-            base: 'https://yiannislucacos.gr',
-            recipePattern: '/recipe/',
-            listPattern:['/recipes/']
-        },
+            listPattern:['/categories']
+        }
     ];
 
     let browser;
