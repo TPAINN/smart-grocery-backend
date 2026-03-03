@@ -118,6 +118,13 @@ const extractDataInBrowser = (storeName, config) => {
         const priceEl = card.querySelector(config.price) || card.querySelector('[class*="price"]');
         if (priceEl) {
             priceNum = parsePrice(priceEl.innerText || priceEl.textContent);
+                // Παίρνουμε μόνο τους αριθμούς (π.χ. "2,50€" -> "250") και διαιρούμε με 100
+                const digits = (priceEl.innerText || priceEl.textContent || '').replace(/\D/g, '');
+                if (digits) priceNum = parseInt(digits, 10) / 100;
+            } else {
+                // Κανονικό parsing για τα υπόλοιπα supermarket
+                priceNum = parsePrice(priceEl.innerText || priceEl.textContent);
+            }
         }
         
         // Παλιά Τιμή (αν υπάρχει)
@@ -370,7 +377,7 @@ async function runWebScraper(targetStore = null) {
 
     const cluster = await Cluster.launch({
         concurrency: Cluster.CONCURRENCY_PAGE, 
-        maxConcurrency: 1, // Αν το λαπτοπ είναι γρήγορο, κάντο 3!
+        maxConcurrency: 5, // Αν το λαπτοπ είναι γρήγορο, κάντο 3!
         timeout: 600000, 
         puppeteerOptions: {
             headless: "new",
