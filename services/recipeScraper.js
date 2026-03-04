@@ -18,89 +18,66 @@ const cleanText = (t) => t ? t.replace(/&nbsp;/g, ' ').replace(/&deg;/g, '°').r
  */
 async function extractRecipeData(page, url) {
     try {
-        console.log(`   🔎 Scraping: ${url}`);
-        
-        // Περιμένουμε το networkidle2 ΚΑΙ ένα βασικό στοιχείο της σελίδας
         await page.goto(url, { waitUntil: 'networkidle2', timeout: 60000 });
         await page.waitForSelector('h1', { timeout: 10000 });
 
-        // 🟢 ΕΚΤΕΛΕΣΗ JavaScript ΜΕΣΑ ΣΤΟΝ BROWSER (Πιο αξιόπιστο από Cheerio)
         const recipeData = await page.evaluate(() => {
-            const getCleanText = (el) => el ? el.innerText.replace(/\s+/g, ' ').trim() : "";
+            const getCleanText = (el) => el ? el.innerText.trim() : "";
             
-            // 1. Τίτλος
             const title = getCleanText(document.querySelector('h1'));
+            const image = document.querySelector('meta[property="og:image"]')?.content;
 
-            // 2. Εικόνα (Meta tag ή Main Image)
-            const image = document.querySelector('meta[property="og:image"]')?.content || 
-                          document.querySelector('.main-image')?.style.backgroundImage.slice(5, -2);
-
-            // 3. Υλικά (Στόχευση σε πολλαπλά Layouts)
-            const ingSelectors = [
-                '.ingredients-wrapper-inner .acc-item', // Νέο Accordion Layout
-                '.recipe-ingredients li',               // Old Layout 1
-                '.ingredients li',                      // Old Layout 2
-                '.ingredients-wrapper-inner div'        // Fallback
+            // 🟢 ΦΙΛΤΡΟ ΓΙΑ ΣΚΟΥΠΙΔΙΑ (Blacklist)
+            const blacklist = [
+                "συστατικά", "γραμμάρια", "γρ.", "ουγγιές", "usa cups", 
+                "tip", "τσέκαρε", "αποθήκευσε", "υπόλοιπα", "σημείωσε"
             ];
-            
-            let ingredients = [];
-            for (const selector of ingSelectors) {
-                const nodes = document.querySelectorAll(selector);
-                if (nodes.length > 0) {
-                    ingredients = Array.from(nodes)
-                        .map(n => getCleanText(n))
-                        .filter(t => t.length > 2 && t !== "Συστατικά");
-                    if (ingredients.length > 0) break; 
-                }
-            }
 
-            // 4. Οδηγίες
-            const instrSelectors = [
-                '.directions-wrapper .acc-item',
-                '.recipe-steps p',
-                '.instructions__item'
-            ];
-            
-            let instructions = [];
-            for (const selector of instrSelectors) {
-                const nodes = document.querySelectorAll(selector);
-                if (nodes.length > 0) {
-                    instructions = Array.from(nodes)
-                        .map(n => getCleanText(n))
-                        .filter(t => t.length > 5 && t !== "Μέθοδος Εκτέλεσης");
-                    if (instructions.length > 0) break;
-                }
-            }
+            const isGarbage = (text) => {
+                const t = text.toLowerCase();
+                return blacklist.some(word => t.includes(word)) || t.length < 2;
+            };
 
-            // 5. Χρόνος
+            // 🟢 ΕΞΥΠΝΗ ΣΥΛΛΟΓΗ ΥΛΙΚΩΝ
+            // Στοχεύουμε μόνο στα πραγματικά κείμενα των υλικών
+            const ingNodes = document.querySelectorAll('.ingredients-wrapper-inner .acc-item, .recipe-ingredients li');
+            let ingredients = Array.from(ingNodes)
+                .map(n => getCleanText(n))
+                .filter(t => !isGarbage(t));
+
+            // Αφαίρεση Διπλότυπων (Deduplicate)
+            ingredients = [...new Set(ingredients)];
+
+            // 🟢 ΣΥΛΛΟΓΗ ΟΔΗΓΙΩΝ
+            const instrNodes = document.querySelectorAll('.directions-wrapper .acc-item, .recipe-steps p');
+            let instructions = Array.from(instrNodes)
+                .map(n => getCleanText(n))
+                .filter(t => !isGarbage(t) && t.length > 10);
+            
+            instructions = [...new Set(instructions)];
+
             const timeNode = document.querySelector('.spec-item.time') || document.querySelector('.cook-time');
             const time = timeNode ? parseInt(timeNode.innerText.replace(/\D/g, '')) : 35;
 
             return { title, image, ingredients, instructions, time };
         });
 
-        if (!recipeData.title || recipeData.ingredients.length === 0) {
-            console.log(`      ❌ Αποτυχία: Δεν βρέθηκαν υλικά στο ${url}`);
-            return null;
-        }
+        if (!recipeData.title || recipeData.ingredients.length === 0) return null;
 
-        // Επιστροφή καθαρισμένων δεδομένων για τη MongoDB
         return {
             title: cleanText(recipeData.title),
             chef: 'Άκης Πετρετζίκης',
             image: recipeData.image,
             time: recipeData.time,
-            cost: recipeData.ingredients.length * 0.8,
+            // 🟢 Διόρθωση κόστους: 0.5€ ανά υλικό κατά μέσο όρο
+            cost: recipeData.ingredients.length * 0.5, 
             ingredients: recipeData.ingredients.map(t => cleanText(t)),
             instructions: recipeData.instructions.map(t => cleanText(t)),
             url,
             isHealthy: true,
-            isBudget: recipeData.ingredients.length < 12
+            isBudget: true
         };
-    } catch (e) {
-        console.log(`      ⚠️ Σφάλμα Timeout στο: ${url}`);
-        return null;
-    }
+    } catch (e) { return null; }
 }
 
 /**
