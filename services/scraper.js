@@ -10,22 +10,22 @@ puppeteer.use(StealthPlugin());
 const { Cluster } = require('puppeteer-cluster');
 
 // --- CONSTANTS: ΣΤΑΘΕΡΕΣ URLS (Όπως τις είχαμε) ---
-const SKLAVENITIS_URLS = [
+const SKLAVENITIS_URLS =[
     "https://www.sklavenitis.gr/eidi-artozacharoplasteioy/psomi-artoskeyasmata/", "https://www.sklavenitis.gr/eidi-artozacharoplasteioy/psomi-typopoiimeno/", "https://www.sklavenitis.gr/eidi-artozacharoplasteioy/pites-tortigies/", "https://www.sklavenitis.gr/eidi-artozacharoplasteioy/kritsinia-paximadia-fryganies/", "https://www.sklavenitis.gr/eidi-artozacharoplasteioy/koyloyria-voytimata/", "https://www.sklavenitis.gr/eidi-artozacharoplasteioy/keik-tsoyrekia-kroyasan/", "https://www.sklavenitis.gr/eidi-artozacharoplasteioy/glyka/", "https://www.sklavenitis.gr/freska-froyta-lachanika/froyta/", "https://www.sklavenitis.gr/freska-froyta-lachanika/lachanika/", "https://www.sklavenitis.gr/freska-froyta-lachanika/kommena-lahanika/", "https://www.sklavenitis.gr/fresko-psari-thalassina/psaria-ichthyokalliergeias/", "https://www.sklavenitis.gr/fresko-psari-thalassina/chtapodia-kalamaria-soypies/", "https://www.sklavenitis.gr/fresko-psari-thalassina/ostrakoeidi/", "https://www.sklavenitis.gr/fresko-kreas/fresko-moschari/", "https://www.sklavenitis.gr/fresko-kreas/fresko-choirino/", "https://www.sklavenitis.gr/fresko-kreas/freska-poylerika/", "https://www.sklavenitis.gr/fresko-kreas/freska-arnia-katsikia/", "https://www.sklavenitis.gr/fresko-kreas/freska-paraskeyasmata-kreaton-poylerikon/", "https://www.sklavenitis.gr/galata-rofimata-chymoi-psygeioy/galata-psygeioy/", "https://www.sklavenitis.gr/galata-rofimata-chymoi-psygeioy/galata-sokolatoycha-psygeioy/", "https://www.sklavenitis.gr/galata-rofimata-chymoi-psygeioy/futika-alla-rofimata-psugeiou/", "https://www.sklavenitis.gr/galata-rofimata-chymoi-psygeioy/chymoi-tsai-psygeioy/", "https://www.sklavenitis.gr/giaoyrtia-kremes-galaktos-epidorpia-psygeioy/giaoyrtia/", "https://www.sklavenitis.gr/giaoyrtia-kremes-galaktos-epidorpia-psygeioy/giaoyrtia-vrefika-paidika/", "https://www.sklavenitis.gr/giaoyrtia-kremes-galaktos-epidorpia-psygeioy/epidorpia-giaoyrtioy/", "https://www.sklavenitis.gr/giaoyrtia-kremes-galaktos-epidorpia-psygeioy/fytika-epidorpia/", "https://www.sklavenitis.gr/giaoyrtia-kremes-galaktos-epidorpia-psygeioy/ryzogala-glykismata-psygeioy/", "https://www.sklavenitis.gr/giaoyrtia-kremes-galaktos-epidorpia-psygeioy/proteinouha-giaoyrtia-epidorpia-glykismata-psygeiou/", "https://www.sklavenitis.gr/giaoyrtia-kremes-galaktos-epidorpia-psygeioy/kremes-galaktos-santigi/", "https://www.sklavenitis.gr/turokomika-futika-anapliromata/feta-leyka-tyria/", "https://www.sklavenitis.gr/turokomika-futika-anapliromata/malaka-tyria/", "https://www.sklavenitis.gr/turokomika-futika-anapliromata/imisklira-tyria/", "https://www.sklavenitis.gr/turokomika-futika-anapliromata/sklira-tyria/", "https://www.sklavenitis.gr/turokomika-futika-anapliromata/tyria-aleifomena-mini-tyrakia/", "https://www.sklavenitis.gr/turokomika-futika-anapliromata/futika-anapliromata/", "https://www.sklavenitis.gr/ayga-voytyro-nopes-zymes-zomoi/ayga/", "https://www.sklavenitis.gr/ayga-voytyro-nopes-zymes-zomoi/voytyra/", "https://www.sklavenitis.gr/ayga-voytyro-nopes-zymes-zomoi/margarines/", "https://www.sklavenitis.gr/ayga-voytyro-nopes-zymes-zomoi/zymes-nopes/", "https://www.sklavenitis.gr/ayga-voytyro-nopes-zymes-zomoi/freska-zymarika-saltses/", "https://www.sklavenitis.gr/ayga-voytyro-nopes-zymes-zomoi/zomoi-psygeioy/", "https://www.sklavenitis.gr/allantika/allantika-galopoylas-kotopoyloy/", "https://www.sklavenitis.gr/allantika/zampon-mpeikon-omoplati/", "https://www.sklavenitis.gr/allantika/pariza-mortadela/", "https://www.sklavenitis.gr/allantika/salamia/", "https://www.sklavenitis.gr/allantika/loykanika/", "https://www.sklavenitis.gr/allantika/paradosiaka-allantika/", "https://www.sklavenitis.gr/allantika/set-allantikon-tyrion/", "https://www.sklavenitis.gr/orektika-delicatessen/psaria-pasta-se-ladi/", "https://www.sklavenitis.gr/orektika-delicatessen/kapnista-psaria/", "https://www.sklavenitis.gr/orektika-delicatessen/delicatessen-thalassinon/", "https://www.sklavenitis.gr/orektika-delicatessen/pate-foie-gras/", "https://www.sklavenitis.gr/orektika-delicatessen/salates-aloifes/", "https://www.sklavenitis.gr/orektika-delicatessen/elies/", "https://www.sklavenitis.gr/orektika-delicatessen/toyrsia-liastes-tomates/", "https://www.sklavenitis.gr/orektika-delicatessen/chalvades/", "https://www.sklavenitis.gr/etoima-geymata/geymata-me-kreas-poylerika/", "https://www.sklavenitis.gr/etoima-geymata/geymata-me-psaria-thalassina-sushi/", "https://www.sklavenitis.gr/etoima-geymata/geymata-osprion-lachanikon/", "https://www.sklavenitis.gr/etoima-geymata/ladera/", "https://www.sklavenitis.gr/etoima-geymata/geymata-zymarikon-ryzioy/", "https://www.sklavenitis.gr/etoima-geymata/soupes/", "https://www.sklavenitis.gr/etoima-geymata/etoimes-salates-synodeytika-geymaton/", "https://www.sklavenitis.gr/etoima-geymata/santoyits/", "https://www.sklavenitis.gr/katepsygmena/katepsygmena-lachanika-froyta/", "https://www.sklavenitis.gr/katepsygmena/katepsygmena-psaria-thalassina/", "http://sklavenitis.gr/katepsygmena/katepsygmena-kreata-poylerika/", "https://www.sklavenitis.gr/katepsygmena/katepsygmena-fytika-anapliromata/", "https://www.sklavenitis.gr/katepsygmena/katepsygmena-geymata/", "https://www.sklavenitis.gr/katepsygmena/katepsygmenes-zymes-pites-pitses/", "https://www.sklavenitis.gr/katepsygmena/pagota-pagakia/", "https://www.sklavenitis.gr/kava/pota/", "https://www.sklavenitis.gr/kava/krasia-sampanies/", "https://www.sklavenitis.gr/kava/mpires-milites/", "https://www.sklavenitis.gr/anapsyktika-nera-chymoi/nera/", "https://www.sklavenitis.gr/anapsyktika-nera-chymoi/anapsyktika-sodes-energeiaka-pota/", "https://www.sklavenitis.gr/anapsyktika-nera-chymoi/chymoi/", "https://www.sklavenitis.gr/xiroi-karpoi-snak/xiroi-karpoi-apoxiramena-froyta/", "https://www.sklavenitis.gr/xiroi-karpoi-snak/patatakia-garidakia-alla-snak/", "https://www.sklavenitis.gr/mpiskota-sokolates-zacharodi/mpiskota/", "https://www.sklavenitis.gr/mpiskota-sokolates-zacharodi/sokolates/", "https://www.sklavenitis.gr/mpiskota-sokolates-zacharodi/pastelia-mantolata-loykoymia/", "https://www.sklavenitis.gr/mpiskota-sokolates-zacharodi/tsichles-karameles-gleifitzoyria/", "https://www.sklavenitis.gr/eidi-proinoy-rofimata/galata-fytika-rofimata-makras-diarkeias/", "https://www.sklavenitis.gr/eidi-proinoy-rofimata/dimitriaka-mpares/", "https://www.sklavenitis.gr/eidi-proinoy-rofimata/kafedes-rofimata-afepsimata/", "https://www.sklavenitis.gr/eidi-proinoy-rofimata/melia-marmelades/", "https://www.sklavenitis.gr/eidi-proinoy-rofimata/pralines-tachini-fystikovoytyro/", "https://www.sklavenitis.gr/eidi-proinoy-rofimata/proteines-se-skoni/", "https://www.sklavenitis.gr/vrefikes-paidikes-trofes/vrefika-paidika-galata/", "https://www.sklavenitis.gr/vrefikes-paidikes-trofes/vrefika-paidika-fagita/", "https://www.sklavenitis.gr/vrefikes-paidikes-trofes/vrefikes-paidikes-kremes/", "https://www.sklavenitis.gr/vrefikes-paidikes-trofes/vrefika-paidika-snak/", "https://www.sklavenitis.gr/trofima-pantopoleioy/aleyria-simigdalia/", "https://www.sklavenitis.gr/trofima-pantopoleioy/zachari-ypokatastata-zacharis/", "https://www.sklavenitis.gr/trofima-pantopoleioy/zymarika/", "https://www.sklavenitis.gr/trofima-pantopoleioy/ketsap-moystardes-magionezes-etoimes-saltses/", "https://www.sklavenitis.gr/trofima-pantopoleioy/konserves-kompostes/", "https://www.sklavenitis.gr/trofima-pantopoleioy/ladia-lipi/", "https://www.sklavenitis.gr/trofima-pantopoleioy/mpacharika-alatia-xidia-zomoi/", "https://www.sklavenitis.gr/trofima-pantopoleioy/ryzia/", "https://www.sklavenitis.gr/trofima-pantopoleioy/ospria/", "https://www.sklavenitis.gr/trofima-pantopoleioy/sitari-kinoa-sogia-alla-dimitriaka/", "https://www.sklavenitis.gr/trofima-pantopoleioy/poyredes-soypes-noodles/", "https://www.sklavenitis.gr/trofima-pantopoleioy/ntomatika/", "https://www.sklavenitis.gr/trofima-pantopoleioy/ylika-mageirikis-zacharoplastikis/", "https://www.sklavenitis.gr/trofima-pantopoleioy/meigmata-gia-zele-glyka/", "https://www.sklavenitis.gr/trofes-eidi-gia-katoikidia/trofes-eidi-gia-skyloys/", "https://www.sklavenitis.gr/trofes-eidi-gia-katoikidia/trofes-eidi-gia-gates/", "https://www.sklavenitis.gr/trofes-eidi-gia-katoikidia/trofes-eidi-gia-ptina-psaria-alla-katoikidia/", "https://www.sklavenitis.gr/eidi-mias-chrisis-eidi-parti/eidi-syntirisis-psisimatos-trofimon/", "https://www.sklavenitis.gr/eidi-mias-chrisis-eidi-parti/sakoyles-aporrimmaton/", "https://www.sklavenitis.gr/eidi-mias-chrisis-eidi-parti/kalamakia-odontoglyfides/", "https://www.sklavenitis.gr/eidi-mias-chrisis-eidi-parti/servitsia-mias-chrisis/", "https://www.sklavenitis.gr/eidi-mias-chrisis-eidi-parti/eidi-parti/", "https://www.sklavenitis.gr/chartika-panes-servietes/chartika/", "https://www.sklavenitis.gr/chartika-panes-servietes/servietes-panes-enilikon/", "https://www.sklavenitis.gr/chartika-panes-servietes/vrefikes-paidikes-panes-moromantila/", "https://www.sklavenitis.gr/kallyntika-eidi-prosopikis-ygieinis/frontida-mallion/", "https://www.sklavenitis.gr/kallyntika-eidi-prosopikis-ygieinis/frontida-somatos/", "https://www.sklavenitis.gr/kallyntika-eidi-prosopikis-ygieinis/eidi-xyrismatos-after-shave/", "https://www.sklavenitis.gr/kallyntika-eidi-prosopikis-ygieinis/stomatiki-ygieini/", "https://www.sklavenitis.gr/kallyntika-eidi-prosopikis-ygieinis/ygieini-peripoiisi-prosopoy/", "https://www.sklavenitis.gr/kallyntika-eidi-prosopikis-ygieinis/makigiaz-vernikia-nychion/", "https://www.sklavenitis.gr/kallyntika-eidi-prosopikis-ygieinis/vrefika-paidika-kallyntika/", "https://www.sklavenitis.gr/kallyntika-eidi-prosopikis-ygieinis/parafarmakeytika-eidi/", "https://www.sklavenitis.gr/aporrypantika-eidi-katharismoy/aporrypantika-roychon/", "https://www.sklavenitis.gr/aporrypantika-eidi-katharismoy/aporrypantika-piaton/", "https://www.sklavenitis.gr/aporrypantika-eidi-katharismoy/katharistika-genikis-chrisis/", "https://www.sklavenitis.gr/aporrypantika-eidi-katharismoy/synerga-katharismoy/", "https://www.sklavenitis.gr/eidi-oikiakis-chrisis/eidi-sideromatos-aplomatos/", "https://www.sklavenitis.gr/eidi-oikiakis-chrisis/fylaxi-peripoiisi-roychon/", "https://www.sklavenitis.gr/eidi-oikiakis-chrisis/peripoiisi-ypodimaton/", "https://www.sklavenitis.gr/eidi-oikiakis-chrisis/aromatika-horou-sullektes-ugrasias-filtra-aporrofitira/", "https://www.sklavenitis.gr/eidi-oikiakis-chrisis/entomoapothitika-entomoktona/", "https://www.sklavenitis.gr/eidi-oikiakis-chrisis/kausimes-ules/", "https://www.sklavenitis.gr/eidi-oikiakis-chrisis/eidi-ugraeriou-anaptires-spirta/", "https://www.sklavenitis.gr/eidi-oikiakis-chrisis/eidi-thymiamatos/", "https://www.sklavenitis.gr/eidi-oikiakis-chrisis/mpataries-lampes-ilektrologika-eidi-tainies/", "https://www.sklavenitis.gr/eidi-oikiakis-chrisis/isothermikes-tsades-karotsia-laikis/", "https://www.sklavenitis.gr/eidi-oikiakis-chrisis/ilektrikes-mikrosuskeues/", "https://www.sklavenitis.gr/chartopoleio/grafiki-yli-organosi-grafeioy/", "https://www.sklavenitis.gr/chartopoleio/tetradia-blok-fakeloi-harti-fototypiko/"
 ];
-const MYMARKET_URLS = [
+const MYMARKET_URLS =[
     "https://www.mymarket.gr/frouta-lachanika", "https://www.mymarket.gr/fresko-kreas-psari", "https://www.mymarket.gr/galaktokomika-eidi-psygeiou", "https://www.mymarket.gr/tyria-allantika-deli", "https://www.mymarket.gr/katepsygmena-trofima", "https://www.mymarket.gr/mpyres-anapsyktika-krasia-pota", "https://www.mymarket.gr/proino-rofimata-kafes", "https://www.mymarket.gr/artozacharoplasteio-snacks", "https://www.mymarket.gr/trofima", "https://www.mymarket.gr/frontida-gia-to-moro-sas", "https://www.mymarket.gr/prosopiki-frontida", "https://www.mymarket.gr/oikiaki-frontida-chartika", "https://www.mymarket.gr/kouzina-mikrosyskeves-spiti", "https://www.mymarket.gr/frontida-gia-to-katoikidio-sas", "https://www.mymarket.gr/epochiaka", "https://www.mymarket.gr/viral-trends", "https://www.mymarket.gr/vegan-epiloges-sta-my-market"
 ];
-const MASOUTIS_URLS = [
+const MASOUTIS_URLS =[
     "https://www.masoutis.gr/categories/index/prosfores?item=0", "https://www.masoutis.gr/categories/index/nea-proionta?item=11", "https://www.masoutis.gr/categories/index/meiwsh-timhs?item=9", "https://www.masoutis.gr/categories/index/proionta-masouths?item=2"
 ];
-const KRITIKOS_URLS = [
+const KRITIKOS_URLS =[
     "https://kritikos-sm.gr/offers/", "https://kritikos-sm.gr/categories/manabikh/", "https://kritikos-sm.gr/categories/fresko-kreas/", "https://kritikos-sm.gr/categories/allantika/", "https://kritikos-sm.gr/categories/turokomika/", "https://kritikos-sm.gr/categories/galaktokomika/", "https://kritikos-sm.gr/categories/eidh-psugeiou/", "https://kritikos-sm.gr/categories/katapsuxh/", "https://kritikos-sm.gr/categories/pantopwleio/", "https://kritikos-sm.gr/categories/kaba/", "https://kritikos-sm.gr/categories/proswpikh-frontida/", "https://kritikos-sm.gr/categories/brefika/", "https://kritikos-sm.gr/categories/kathariothta/", "https://kritikos-sm.gr/categories/oikiakh-xrhsh/", "https://kritikos-sm.gr/categories/pet-shop/", "https://kritikos-sm.gr/categories/biologikaleitourgika/"
 ];
-const GALAXIAS_URLS = [
+const GALAXIAS_URLS =[
     "https://galaxias.shop/eshop/2?promos=isExtraBonus&promos=isBravoBonus&promos=isKalathiNoikokiriou&promos=isSumferei&promos=isTileoptiko&promos=isGoldPrices", "https://galaxias.shop/eshop/59", "https://galaxias.shop/eshop/69", "https://galaxias.shop/eshop/194", "https://galaxias.shop/eshop/95", "https://galaxias.shop/eshop/66", "https://galaxias.shop/eshop/104", "https://galaxias.shop/eshop/68", "https://galaxias.shop/eshop/103", "https://galaxias.shop/eshop/1080515", "https://galaxias.shop/eshop/89", "https://galaxias.shop/eshop/88", "https://galaxias.shop/eshop/788", "https://galaxias.shop/eshop/342", "https://galaxias.shop/eshop/93", "https://galaxias.shop/eshop/75", "https://galaxias.shop/eshop/64", "https://galaxias.shop/eshop/72", "https://galaxias.shop/eshop/245", "https://galaxias.shop/eshop/86"
 ];
-const MARKET_IN_URLS = [
+const MARKET_IN_URLS =[
     "https://www.market-in.gr/el-gr/manabikh", "https://www.market-in.gr/el-gr/kreopoleio-1", "https://www.market-in.gr/el-gr/tyrokomika-allantika", "https://www.market-in.gr/el-gr/trofima", "https://www.market-in.gr/el-gr/kava", "https://www.market-in.gr/el-gr/vrefika", "https://www.market-in.gr/el-gr/galaktokomika-proionta-psugeiou", "https://www.market-in.gr/el-gr/katepsugmena", "https://www.market-in.gr/el-gr/prosopikh-frontida", "https://www.market-in.gr/el-gr/kathariothta", "https://www.market-in.gr/el-gr/ola-gia-to-spiti", "https://www.market-in.gr/el-gr/katoikidia"
 ];
 
@@ -42,7 +42,7 @@ const STORE_CONFIGS = {
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
 // 🟢 NΕΟ: Η Μπάρα Προόδου στο CLI
-let globalIsScraping = false;
+let globalIsScraping = false; // ✅ Fix: δήλωση μεταβλητής
 let totalJobs = 0;
 let completedJobs = 0;
 
@@ -57,16 +57,16 @@ const drawProgressBar = (current, total, storeName) => {
 
 // 🟢 O ΑΠΟΛΥΤΟΣ EXTRACTOR (Fix για τις τιμές ΑΒ Βασιλόπουλου)
 const extractDataInBrowser = (storeName, config) => {
-    const products = [];
-
+    const products =[];
+    
     // 🧠 SMART PRICE PARSER
     const parsePrice = (text) => {
         if (!text) return null;
-
+        
         // 1. Απομονώνουμε την τιμή συσκευασίας (συχνά η τιμή κιλού είναι δίπλα στο ίδιο text)
         // Κόβουμε τα πάντα μετά το πρώτο "€"
         let baseText = text.replace(/\s+/g, ' ').split('€')[0].trim();
-
+        
         // 2. Κρατάμε ΜΟΝΟ αριθμούς, τελείες και κόμματα
         let cleanText = baseText.replace(/[^\d,.]/g, '');
         if (!cleanText) return null;
@@ -75,12 +75,12 @@ const extractDataInBrowser = (storeName, config) => {
         if (cleanText.includes(',') || cleanText.includes('.')) {
             cleanText = cleanText.replace(',', '.');
             let finalNum = parseFloat(cleanText);
-
+            
             // Sanity Check: Αν βγήκε 250.00 λόγω κακού text content, το ρίχνουμε στα φυσιολογικά
             if (finalNum > 300) return finalNum / 100;
             return finalNum;
-        }
-
+        } 
+        
         // 4. ΠΕΡΙΠΤΩΣΗ 2 (ΤΟ BUG ΤΟΥ ΑΒ): Το DOM μας έδωσε τα ψηφία κολλητά (π.χ. "250")
         const num = parseInt(cleanText, 10);
         if (isNaN(num)) return null;
@@ -90,7 +90,7 @@ const extractDataInBrowser = (storeName, config) => {
         if (num > 99 || storeName === 'ΑΒ Βασιλόπουλος') {
             return num / 100;
         }
-
+        
         return num;
     };
 
@@ -103,10 +103,10 @@ const extractDataInBrowser = (storeName, config) => {
             if (wrapper && !cards.includes(wrapper)) cards.push(wrapper);
         });
     }
-
+    
     cards.forEach(card => {
         let name = '', priceNum = null, oldPriceNum = null, isSale = false, is1plus1 = false, imgUrl = null;
-
+        
         // Όνομα
         const nameEl = card.querySelector(config.name) || card.querySelector('h2, h3, h4, [class*="title"],[data-qa-label*="title"]');
         if (nameEl) name = (nameEl.textContent || nameEl.innerText || '').trim();
@@ -114,26 +114,44 @@ const extractDataInBrowser = (storeName, config) => {
             const abName = card.querySelector('[data-testid="product-name"]');
             if (abName) name = (abName.textContent || '').trim();
         }
-
-        // Τιμή
-        const priceEl = card.querySelector(config.price) || card.querySelector('[class*="price"]');
-        if (priceEl) {
-            if (storeName === 'ΑΒ Βασιλόπουλος') {
-                // Παίρνουμε μόνο τους αριθμούς (π.χ. "2,50€" -> "250") και διαιρούμε με 100
-                const digits = (priceEl.innerText || priceEl.textContent || '').replace(/\D/g, '');
-                if (digits) priceNum = parseInt(digits, 10) / 100;
+        
+        // Τιμή — Παίρνουμε ΠΑΝΤΑ την τελική τιμή συσκευασίας, ΟΧΙ τιμή/κιλό ή τιμή/λίτρο
+        const PER_UNIT_PATTERNS = /ανά\s*(κιλό|λίτρο|100g|100ml|τεμ|μον|kg|lt|gr)|\/\s*(kg|lt|κιλό|λίτρο|100g|100ml)/i;
+        
+        // Βρίσκουμε όλα τα price elements μέσα στο card
+        const allPriceEls = Array.from(card.querySelectorAll(config.price + ', [class*="unit-price"], [class*="unitPrice"], [class*="per-unit"], [class*="perUnit"]'));
+        
+        // Φιλτράρουμε: κρατάμε ΜΟΝΟ την τιμή που ΔΕΝ αναφέρεται σε τιμή/μονάδα βάρους
+        let packagePriceEl = null;
+        for (const el of allPriceEls) {
+            const elText = (el.innerText || el.textContent || '');
+            // Αν το ίδιο element ή κάποιο sibling/parent έχει "ανά κιλό" κλπ, το παρακάμπτουμε
+            const parentText = (el.closest('[class*="unit"], [class*="Unit"]') || el.parentElement || {}).textContent || '';
+            if (PER_UNIT_PATTERNS.test(elText) || PER_UNIT_PATTERNS.test(parentText)) continue;
+            packagePriceEl = el;
+            break;
+        }
+        // Fallback: αν δεν βρήκαμε package price, πάρε το πρώτο
+        if (!packagePriceEl) packagePriceEl = card.querySelector(config.price) || card.querySelector('[class*="price"]');
+        
+        if (packagePriceEl) {
+            const rawText = packagePriceEl.innerText || packagePriceEl.textContent || '';
+            // Αν το text περιέχει "ανά" (τιμή/κιλό κλπ), παρακάμψτε
+            if (!PER_UNIT_PATTERNS.test(rawText)) {
+                priceNum = parsePrice(rawText);
             } else {
-                // Κανονικό parsing για τα υπόλοιπα supermarket
-                priceNum = parsePrice(priceEl.innerText || priceEl.textContent);
+                // Τελευταία λύση: πάρε μόνο το πρώτο αριθμητικό μέρος πριν το "/"
+                const beforeSlash = rawText.split('/')[0];
+                priceNum = parsePrice(beforeSlash);
             }
         }
-
+        
         // Παλιά Τιμή (αν υπάρχει)
         if (config.oldPrice) {
             const oldPriceEl = card.querySelector(config.oldPrice);
             if (oldPriceEl) oldPriceNum = parsePrice(oldPriceEl.innerText || oldPriceEl.textContent);
         }
-
+        
         // Προσφορές
         if (config.promo) {
             const promos = card.querySelectorAll(config.promo);
@@ -143,11 +161,11 @@ const extractDataInBrowser = (storeName, config) => {
                 if (pText.includes('1+1') || pText.includes('δωρο')) { is1plus1 = true; isSale = true; }
             });
         }
-
+        
         // Εικόνα
         const imgEl = card.querySelector('img');
         if (imgEl) imgUrl = imgEl.src || imgEl.getAttribute('data-src');
-
+        
         // Αποθήκευση ΜΟΝΟ αν η τιμή είναι έγκυρη
         if (name && priceNum && priceNum > 0) {
             name = name.replace(/(το τεμάχιο|το τεμαχιο|συσκευασία|συσκευασια)/gi, '').trim();
@@ -155,7 +173,7 @@ const extractDataInBrowser = (storeName, config) => {
             products.push({ name, normalizedName, supermarket: storeName, price: priceNum, oldPrice: oldPriceNum, isOnSale: isSale, is1plus1: is1plus1, imageUrl: imgUrl });
         }
     });
-
+    
     return products;
 };
 
@@ -165,7 +183,7 @@ async function scrapeSklavenitis(page, storeName, config, allFound) {
     while (keepGoing) {
         const products = await page.evaluate(extractDataInBrowser, storeName, config);
         let addedNew = false;
-        products.forEach(p => { if (!allFound.has(p.normalizedName)) { allFound.set(p.normalizedName, p); addedNew = true; } });
+        products.forEach(p => { if (!allFound.has(p.normalizedName)) { allFound.set(p.normalizedName, p); addedNew = true; }});
         if (addedNew) { fails = 0; } else { fails++; }
         const status = await page.evaluate(() => {
             const counter = document.querySelector('span.current-page');
@@ -175,7 +193,7 @@ async function scrapeSklavenitis(page, storeName, config, allFound) {
             }
             return 'SCROLL';
         });
-        if (status === 'DONE' || fails > 15) break;
+        if (status === 'DONE' || fails > 15) break; 
         await page.keyboard.press('PageDown'); await sleep(400);
     }
 }
@@ -184,9 +202,9 @@ async function scrapeAB(page, storeName, config, allFound) {
     while (fails < 15) {
         const products = await page.evaluate(extractDataInBrowser, storeName, config);
         let addedNew = false;
-        products.forEach(p => { if (!allFound.has(p.normalizedName)) { allFound.set(p.normalizedName, p); addedNew = true; } });
+        products.forEach(p => { if (!allFound.has(p.normalizedName)) { allFound.set(p.normalizedName, p); addedNew = true; }});
         if (addedNew) { fails = 0; } else { fails++; }
-        await page.keyboard.press('PageDown'); await sleep(500);
+        await page.keyboard.press('PageDown'); await sleep(500); 
     }
 }
 async function scrapeGalaxias(page, storeName, config, allFound) {
@@ -194,11 +212,11 @@ async function scrapeGalaxias(page, storeName, config, allFound) {
     while (fails < 5) {
         const products = await page.evaluate(extractDataInBrowser, storeName, config);
         let addedNew = false;
-        products.forEach(p => { if (!allFound.has(p.normalizedName)) { allFound.set(p.normalizedName, p); addedNew = true; } });
+        products.forEach(p => { if (!allFound.has(p.normalizedName)) { allFound.set(p.normalizedName, p); addedNew = true; }});
         if (addedNew) { fails = 0; } else { fails++; }
         for (let i = 0; i < 20; i++) { await page.keyboard.press('PageDown'); await sleep(30); }
         await page.keyboard.press('PageUp'); await sleep(100); await page.keyboard.press('PageDown');
-        await sleep(1000);
+        await sleep(1000); 
     }
 }
 async function scrapeMyMarket(page, storeName, config, allFound) {
@@ -211,7 +229,7 @@ async function scrapeMyMarket(page, storeName, config, allFound) {
             if (btn && !btn.disabled && btn.offsetParent !== null) { btn.click(); return true; }
             return false;
         }, config.nextBtn);
-        if (hasNext) { await sleep(2500); fails = 0; }
+        if (hasNext) { await sleep(2500); fails = 0; } 
         else { fails++; keepGoing = false; }
     }
 }
@@ -229,7 +247,7 @@ async function scrapeMarketIn(page, storeName, config, allFound) {
             }
             return false;
         }, config.nextBtn);
-        if (hasNext) { await sleep(2500); fails = 0; }
+        if (hasNext) { await sleep(2500); fails = 0; } 
         else { fails++; keepGoing = false; }
     }
 }
@@ -238,7 +256,7 @@ async function scrapeMasoutis(page, storeName, config, allFound) {
     while (fails < 15) {
         const products = await page.evaluate(extractDataInBrowser, storeName, config);
         let addedNew = false;
-        products.forEach(p => { if (!allFound.has(p.normalizedName)) { allFound.set(p.normalizedName, p); addedNew = true; } });
+        products.forEach(p => { if (!allFound.has(p.normalizedName)) { allFound.set(p.normalizedName, p); addedNew = true; }});
         if (addedNew) { fails = 0; } else { fails++; }
         await page.keyboard.press('PageDown');
         await page.evaluate((sel) => {
@@ -253,7 +271,7 @@ async function scrapeKritikos(page, storeName, config, allFound) {
     while (fails < 15) {
         const products = await page.evaluate(extractDataInBrowser, storeName, config);
         let addedNew = false;
-        products.forEach(p => { if (!allFound.has(p.normalizedName)) { allFound.set(p.normalizedName, p); addedNew = true; } });
+        products.forEach(p => { if (!allFound.has(p.normalizedName)) { allFound.set(p.normalizedName, p); addedNew = true; }});
         if (addedNew) { fails = 0; } else { fails++; }
         for (let i = 0; i < 6; i++) { await page.keyboard.press('PageDown'); await sleep(100); }
     }
@@ -263,14 +281,14 @@ async function scrapeKritikos(page, storeName, config, allFound) {
 async function scrapeTask({ page, data: { url, storeName } }) {
     const config = STORE_CONFIGS[storeName];
     const allFound = new Map();
-
+    
     // Retry Logic (Δοκιμάζει το ίδιο Link έως και 3 φορές αν φάει timeout)
     let retries = 3;
     while (retries > 0) {
         try {
             await page.setViewport({ width: 1920, height: 1080 });
             await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36');
-
+            
             await page.setRequestInterception(true);
             page.removeAllListeners('request'); // Καθαρισμός προηγούμενων listeners σε retries
             page.on('request', (req) => {
@@ -283,17 +301,17 @@ async function scrapeTask({ page, data: { url, storeName } }) {
             await sleep(1000);
 
             // Cookies & Banners
-            try {
-                await page.evaluate(() => {
-                    const btn = [...document.querySelectorAll('button, a, div[role="button"]')].find(b =>
+            try { 
+                await page.evaluate(() => { 
+                    const btn =[...document.querySelectorAll('button, a, div[role="button"]')].find(b => 
                         /αποδοχή|accept|συμφωνώ|συναινώ/i.test(b.textContent || b.innerText)
                     ) || document.querySelector('#onetrust-accept-btn-handler, .cookie-alert-extended-button, .ods-cookie-banner__accept-all');
                     if (btn && btn.offsetParent !== null) btn.click();
                     const banners = document.querySelectorAll('#onetrust-banner-sdk, .cookie-banner,[class*="overlay"]');
                     banners.forEach(b => b.remove());
-                });
-                await sleep(1000);
-            } catch (e) { }
+                }); 
+                await sleep(1000); 
+            } catch(e){}
 
             // 🎯 DELEGATION
             switch (storeName) {
@@ -317,7 +335,7 @@ async function scrapeTask({ page, data: { url, storeName } }) {
 
     // 💾 ΑΠΟΘΗΚΕΥΣΗ ΣΤΗ ΒΑΣΗ ΔΕΔΟΜΕΝΩΝ (UPSERT)
     const finalProducts = Array.from(allFound.values());
-
+    
     if (finalProducts.length > 0) {
         const bulkOps = finalProducts.map(product => ({
             updateOne: {
@@ -340,7 +358,7 @@ async function runWebScraper(targetStore = null) {
     globalIsScraping = true; // Ξεκίνησε!
     completedJobs = 0;
 
-    let urlsToScrape = [...SKLAVENITIS_URLS, ...MYMARKET_URLS, ...MASOUTIS_URLS, ...KRITIKOS_URLS, ...GALAXIAS_URLS, ...MARKET_IN_URLS];
+    let urlsToScrape =[ ...SKLAVENITIS_URLS, ...MYMARKET_URLS, ...MASOUTIS_URLS, ...KRITIKOS_URLS, ...GALAXIAS_URLS, ...MARKET_IN_URLS ];
 
     try {
         const jsonPath = path.join(__dirname, '../category_links.json');
@@ -348,7 +366,7 @@ async function runWebScraper(targetStore = null) {
             const linksData = JSON.parse(fs.readFileSync(jsonPath, 'utf8'));
             if (linksData['ΑΒ Βασιλόπουλος']) urlsToScrape = urlsToScrape.concat(linksData['ΑΒ Βασιλόπουλος']);
         }
-    } catch (e) { }
+    } catch (e) {}
 
     let storeMap = urlsToScrape.map(url => {
         if (url.includes('ab.gr')) return { storeName: 'ΑΒ Βασιλόπουλος', url, id: 'ab' };
@@ -377,21 +395,21 @@ async function runWebScraper(targetStore = null) {
     drawProgressBar(0, totalJobs, 'Εκκίνηση...');
 
     const cluster = await Cluster.launch({
-        concurrency: Cluster.CONCURRENCY_PAGE,
+        concurrency: Cluster.CONCURRENCY_PAGE, 
         maxConcurrency: 1, // Αν το λαπτοπ είναι γρήγορο, κάντο 3!
-        timeout: 600000,
+        timeout: 600000, 
         puppeteerOptions: {
             headless: "new",
-            defaultViewport: null,
-            args: [
-                '--no-sandbox',
-                '--disable-setuid-sandbox',
+            defaultViewport: null, 
+            args:[
+                '--no-sandbox', 
+                '--disable-setuid-sandbox', 
                 '--disable-blink-features=AutomationControlled',
-                '--disable-web-security',
+                '--disable-web-security', 
                 '--disable-features=IsolateOrigins,site-per-process',
-                '--disable-gpu',
-                '--disable-dev-shm-usage',
-                '--no-first-run',
+                '--disable-gpu', 
+                '--disable-dev-shm-usage', 
+                '--no-first-run', 
                 '--no-zygote',
                 // 🟢 ΝΕΑ ΠΡΟΣΘΗΚΗ: Κρισιμα για Render Free Plan (512MB RAM)
                 '--single-process',             // Αναγκάζει το Chromium να τρέξει σε 1 process (τεράστια οικονομία RAM)
@@ -403,11 +421,11 @@ async function runWebScraper(targetStore = null) {
         }
     });
 
-    cluster.on('taskerror', (err, data) => { }); // Τα λάθη πιάνονται από το Retry Loop πλέον
+    cluster.on('taskerror', (err, data) => {}); // Τα λάθη πιάνονται από το Retry Loop πλέον
 
     await cluster.task(scrapeTask);
     storeMap.forEach(data => cluster.queue(data));
-
+    
     await cluster.idle();
     await cluster.close();
 
