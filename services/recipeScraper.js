@@ -1,8 +1,9 @@
 // services/recipeScraper.js
-// ⚡ Lightweight: fetch + cheerio ONLY — no Puppeteer → ~30MB RAM (works on Render free 512MB)
+// ⚡ Lightweight: native https ONLY — no Puppeteer, no node-fetch → ~30MB RAM
 // 🔍 Depth 3: Homepage → Categories → Subcategories → Recipes
 
-const fetch   = (...args) => import('node-fetch').then(m => m.default(...args));
+const https   = require('https');
+const http    = require('http');
 const cheerio = require('cheerio');
 const Recipe  = require('../models/Recipe');
 
@@ -12,20 +13,36 @@ const HEADERS = {
   'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
   'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
   'Accept-Language': 'el-GR,el;q=0.9,en;q=0.8',
+  'Accept-Encoding': 'identity',
 };
 
-// ─── Fetch HTML safely ────────────────────────────────────────────────────────
-async function fetchHTML(url, timeout = 15000) {
-  try {
-    const ctrl = new AbortController();
-    const tid  = setTimeout(() => ctrl.abort(), timeout);
-    const res  = await fetch(url, { headers: HEADERS, signal: ctrl.signal });
-    clearTimeout(tid);
-    if (!res.ok) return null;
-    return await res.text();
-  } catch {
-    return null;
-  }
+// ─── Fetch HTML with native https (follows redirects) ─────────────────────────
+function fetchHTML(url, timeout = 20000, redirects = 0) {
+  return new Promise((resolve) => {
+    if (redirects > 5) return resolve(null);
+    try {
+      const lib     = url.startsWith('https') ? https : http;
+      const options = { headers: HEADERS, timeout };
+      const req = lib.get(url, options, (res) => {
+        // Follow redirects
+        if ([301, 302, 303, 307, 308].includes(res.statusCode) && res.headers.location) {
+          const next = res.headers.location.startsWith('http')
+            ? res.headers.location
+            : new URL(res.headers.location, url).href;
+          res.resume();
+          return resolve(fetchHTML(next, timeout, redirects + 1));
+        }
+        if (res.statusCode !== 200) { res.resume(); return resolve(null); }
+        res.setEncoding('utf8');
+        let body = '';
+        res.on('data', chunk => { body += chunk; });
+        res.on('end', () => resolve(body));
+        res.on('error', () => resolve(null));
+      });
+      req.on('timeout', () => { req.destroy(); resolve(null); });
+      req.on('error',   () => resolve(null));
+    } catch { resolve(null); }
+  });
 }
 
 // ─── Parse duration (PT1H30M → 90 min) ───────────────────────────────────────
