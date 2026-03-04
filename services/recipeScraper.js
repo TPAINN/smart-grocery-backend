@@ -8,10 +8,27 @@ const Recipe = require('../models/Recipe');
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
 const parseISO8601Duration = (duration) => {
-    if (!duration) return 0;
-    const match = duration.match(/PT(?:(\d+)H)?(?:(\d+)M)?/);
-    if (!match) return 0;
-    return ((parseInt(match[1]) || 0) * 60) + (parseInt(match[2]) || 0);
+    if (!duration) return null;
+    if (typeof duration === 'number') return duration;
+    
+    // Handle ISO 8601: PT1H30M, PT45M, PT1H, etc.
+    const isoMatch = duration.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/);
+    if (isoMatch && (isoMatch[1] || isoMatch[2] || isoMatch[3])) {
+        return ((parseInt(isoMatch[1]) || 0) * 60) + (parseInt(isoMatch[2]) || 0) + (isoMatch[3] ? 1 : 0);
+    }
+    
+    // Handle plain number strings: "45", "90"
+    const plainNum = parseInt(duration);
+    if (!isNaN(plainNum) && plainNum > 0) return plainNum;
+    
+    // Handle text: "45 λεπτά", "1 ώρα", "1 ώρα και 30 λεπτά"
+    const hoursMatch = duration.match(/(\d+)\s*(?:ώρ|ωρ|hour|hr)/i);
+    const minsMatch = duration.match(/(\d+)\s*(?:λεπτ|min|minute)/i);
+    if (hoursMatch || minsMatch) {
+        return ((parseInt(hoursMatch?.[1]) || 0) * 60) + (parseInt(minsMatch?.[1]) || 0);
+    }
+    
+    return null;
 };
 
 function textContainsOven(instructions) {
@@ -82,7 +99,16 @@ async function extractRecipeData(page, url, chefName) {
             }
         }
 
-        const totalTime = parseISO8601Duration(recipeData.totalTime) || 45;
+        // ⏱️ Robust time extraction: totalTime → prepTime+cookTime → fallback
+        let totalTime = parseISO8601Duration(recipeData.totalTime);
+        if (!totalTime) {
+            const prep = parseISO8601Duration(recipeData.prepTime) || 0;
+            const cook = parseISO8601Duration(recipeData.cookTime) || 0;
+            if (prep + cook > 0) totalTime = prep + cook;
+        }
+        if (!totalTime) totalTime = parseISO8601Duration(recipeData.performTime);
+        if (!totalTime) totalTime = 45; // last resort fallback
+
         const caloriesStr = recipeData.nutrition?.calories || "450";
         const calories = parseInt(String(caloriesStr).replace(/\D/g, '')) || 450;
 
