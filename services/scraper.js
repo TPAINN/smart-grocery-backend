@@ -42,6 +42,7 @@ const STORE_CONFIGS = {
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
 // 🟢 NΕΟ: Η Μπάρα Προόδου στο CLI
+let globalIsScraping = false;
 let totalJobs = 0;
 let completedJobs = 0;
 
