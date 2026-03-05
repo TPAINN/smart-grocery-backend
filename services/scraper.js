@@ -42,7 +42,7 @@ const STORE_CONFIGS = {
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
 // 🟢 NΕΟ: Η Μπάρα Προόδου στο CLI
-let globalIsScraping = false; // ✅ Fix: δήλωση μεταβλητής
+let globalIsScraping = false; 
 let totalJobs = 0;
 let completedJobs = 0;
 
@@ -55,7 +55,7 @@ const drawProgressBar = (current, total, storeName) => {
     process.stdout.write(`\r[${bar}] ${percent}% | 🛒 ${storeName} | ✅ ${current}/${total} Σελίδες ολοκληρώθηκαν`);
 };
 
-// 🟢 O ΑΠΟΛΥΤΟΣ EXTRACTOR (Fix για τις τιμές ΑΒ Βασιλόπουλου)
+// 🟢 O ΑΠΟΛΥΤΟΣ EXTRACTOR
 const extractDataInBrowser = (storeName, config) => {
     const products =[];
     
@@ -116,44 +116,33 @@ const extractDataInBrowser = (storeName, config) => {
         }
         
         // ── Τιμή: τελική τιμή συσκευασίας, ΟΧΙ τιμή/τεμάχιο ή τιμή/κιλό ──────────
-        // Regex που τρέχει ΜΕΣΑ στο browser (single backslash)
-        const isUnitPrice = (txt) => /\/(τεμ|kg|lt|κιλ|λίτρ|100g|100ml|μον)/i.test(txt) ||
-                                      /ανά\s*(κιλό|λίτρο|τεμ|kg|lt|μονάδα)/i.test(txt) ||
-                                      /τεμ\.\s*$/.test(txt.trim()) ||
-                                      /€\s*\/\s*(τεμ|kg|κιλ|lt)/i.test(txt) ||
-                                      /τιμή\s*(κιλού|τεμαχίου|λίτρου)/i.test(txt);
+        // Regex (πλέον πιάνει και τα "/ τεμ", "/ kg" με κενά)
+        const isUnitPrice = (txt) => /\/\s*(τεμ|kg|lt|κιλ|λίτρ|100g|100ml)/i.test(txt) ||
+                                      /ανά\s*(κιλό|λίτρο|τεμ|kg|lt)/i.test(txt) ||
+                                      / τεμ\.\s*$/.test(txt.trim());
 
         if (storeName === 'MyMarket') {
-            // MyMarket DOM: τελική τιμή = font-semibold χωρίς "/" στο ΔΙΚΟ ΤΟΥ κείμενο
-            // τιμή/τεμ = span με "/τεμ." ή "/kg" στο ΔΙΚΟ ΤΟΥ text
-            const candidates = Array.from(card.querySelectorAll('.font-semibold, [class*="price"], [class*="Price"]'));
-            let unitPriceVal = null;
-            let packagePriceVal = null;
-
+            // MyMarket DOM: Χρησιμοποιούμε τον config.price selector για να αγνοήσουμε εξαρχής class="unit" κλπ.
+            const candidates = Array.from(card.querySelectorAll(config.price));
             for (const el of candidates) {
                 if (el.classList.contains('diagonal-line')) continue; // παλιά τιμή
-                const ownText = (el.innerText || el.textContent || '').trim();
-                if (!ownText) continue;
+                
+                const txt = (el.innerText || el.textContent || '').trim();
+                if (!txt) continue;
+                
+                // Διπλός έλεγχος: Ελέγχουμε αν το κείμενο, ο γονέας ή το επόμενο sibling έχει "/τεμ" κλπ
+                const parentTxt = el.parentElement ? (el.parentElement.innerText || el.parentElement.textContent || '') : '';
+                const nextSiblingTxt = el.nextElementSibling ? (el.nextElementSibling.innerText || el.nextElementSibling.textContent || '') : '';
 
-                // Ελέγχουμε ΜΟΝΟ το text του ίδιου element, ΟΧΙ του parent
-                if (isUnitPrice(ownText)) {
-                    // Αυτή είναι τιμή/τεμ ή /kg — κρατάμε σαν fallback
-                    if (!unitPriceVal) {
-                        const p = parsePrice(ownText.split('/')[0]);
-                        if (p && p > 0) unitPriceVal = p;
-                    }
-                    continue;
-                }
+                if (isUnitPrice(txt) || isUnitPrice(parentTxt) || isUnitPrice(nextSiblingTxt)) continue;
+                if (isUnitPrice(el.closest('span,div')?.textContent || '')) continue;
 
-                const parsed = parsePrice(ownText);
-                if (parsed && parsed > 0 && parsed < 999) {
-                    packagePriceVal = parsed;
-                    break; // Βρήκαμε τελική τιμή — σταμάτα
+                const parsed = parsePrice(txt);
+                if (parsed && parsed > 0 && parsed < 999) { 
+                    priceNum = parsed; 
+                    break; 
                 }
             }
-
-            // Τελική τιμή = package price. Αν δε βρέθηκε, unit price σαν fallback
-            priceNum = packagePriceVal || unitPriceVal;
         } else {
             // Υπόλοιπα supermarkets: γενική λογική
             const priceEl = card.querySelector(config.price) || card.querySelector('[class*="price"]');
@@ -195,7 +184,7 @@ const extractDataInBrowser = (storeName, config) => {
     return products;
 };
 
-// ...[ΕΔΩ ΜΠΑΙΝΟΥΝ ΟΙ 7 STRATEGY FUNCTIONS ΑΚΡΙΒΩΣ ΟΠΩΣ ΤΙΣ ΕΙΧΑΜΕ]
+// ...[STRATEGY FUNCTIONS ΑΚΡΙΒΩΣ ΟΠΩΣ ΤΙΣ ΕΙΧΑΜΕ]
 async function scrapeSklavenitis(page, storeName, config, allFound) {
     let keepGoing = true; let fails = 0;
     while (keepGoing) {
@@ -295,7 +284,7 @@ async function scrapeKritikos(page, storeName, config, allFound) {
     }
 }
 
-// 🧠 THE WORKER ΜΕ SMART RETRIES (Self-Healing)
+// 🧠 THE WORKER ΜΕ SMART RETRIES
 async function scrapeTask({ page, data: { url, storeName } }) {
     const config = STORE_CONFIGS[storeName];
     const allFound = new Map();
@@ -414,7 +403,7 @@ async function runWebScraper(targetStore = null) {
 
     const cluster = await Cluster.launch({
         concurrency: Cluster.CONCURRENCY_PAGE, 
-        maxConcurrency: 1, // Αν το λαπτοπ είναι γρήγορο, κάντο 3!
+        maxConcurrency: 6, 
         timeout: 600000, 
         puppeteerOptions: {
             headless: "new",
@@ -429,17 +418,16 @@ async function runWebScraper(targetStore = null) {
                 '--disable-dev-shm-usage', 
                 '--no-first-run', 
                 '--no-zygote',
-                // 🟢 ΝΕΑ ΠΡΟΣΘΗΚΗ: Κρισιμα για Render Free Plan (512MB RAM)
-                '--single-process',             // Αναγκάζει το Chromium να τρέξει σε 1 process (τεράστια οικονομία RAM)
-                '--disable-extensions',         // Απενεργοποιεί extensions που τρώνε μνήμη
-                '--js-flags="--max-old-space-size=256"', // Περιορίζει τη χρήση JS memory για να μην κρασάρει το instance
-                '--disable-notifications',      // Απενεργοποιεί popups
-                '--no-default-browser-check'    // Γλιτώνει χρόνο εκκίνησης
+                '--single-process',             
+                '--disable-extensions',         
+                '--js-flags="--max-old-space-size=256"', 
+                '--disable-notifications',      
+                '--no-default-browser-check'    
             ]
         }
     });
 
-    cluster.on('taskerror', (err, data) => {}); // Τα λάθη πιάνονται από το Retry Loop πλέον
+    cluster.on('taskerror', (err, data) => {}); 
 
     await cluster.task(scrapeTask);
     storeMap.forEach(data => cluster.queue(data));
