@@ -117,23 +117,43 @@ const extractDataInBrowser = (storeName, config) => {
         
         // ── Τιμή: τελική τιμή συσκευασίας, ΟΧΙ τιμή/τεμάχιο ή τιμή/κιλό ──────────
         // Regex που τρέχει ΜΕΣΑ στο browser (single backslash)
-        const isUnitPrice = (txt) => /\/(τεμ|kg|lt|κιλ|λίτρ|100g|100ml)/i.test(txt) ||
-                                      /ανά\s*(κιλό|λίτρο|τεμ|kg|lt)/i.test(txt) ||
-                                      /τεμ\.\s*$/.test(txt.trim());
+        const isUnitPrice = (txt) => /\/(τεμ|kg|lt|κιλ|λίτρ|100g|100ml|μον)/i.test(txt) ||
+                                      /ανά\s*(κιλό|λίτρο|τεμ|kg|lt|μονάδα)/i.test(txt) ||
+                                      /τεμ\.\s*$/.test(txt.trim()) ||
+                                      /€\s*\/\s*(τεμ|kg|κιλ|lt)/i.test(txt) ||
+                                      /τιμή\s*(κιλού|τεμαχίου|λίτρου)/i.test(txt);
 
         if (storeName === 'MyMarket') {
-            // MyMarket DOM: τελική τιμή = font-semibold χωρίς "/" στο κείμενο
-            // τιμή/τεμ = μικρό span με "/τεμ." ή "/kg"
+            // MyMarket DOM: τελική τιμή = font-semibold χωρίς "/" στο ΔΙΚΟ ΤΟΥ κείμενο
+            // τιμή/τεμ = span με "/τεμ." ή "/kg" στο ΔΙΚΟ ΤΟΥ text
             const candidates = Array.from(card.querySelectorAll('.font-semibold, [class*="price"], [class*="Price"]'));
+            let unitPriceVal = null;
+            let packagePriceVal = null;
+
             for (const el of candidates) {
                 if (el.classList.contains('diagonal-line')) continue; // παλιά τιμή
-                const txt = (el.innerText || el.textContent || '').trim();
-                if (!txt) continue;
-                if (isUnitPrice(txt)) continue;                        // τιμή/τεμ → skip
-                if (isUnitPrice(el.closest('span,div')?.textContent || '')) continue;
-                const parsed = parsePrice(txt);
-                if (parsed && parsed > 0 && parsed < 999) { priceNum = parsed; break; }
+                const ownText = (el.innerText || el.textContent || '').trim();
+                if (!ownText) continue;
+
+                // Ελέγχουμε ΜΟΝΟ το text του ίδιου element, ΟΧΙ του parent
+                if (isUnitPrice(ownText)) {
+                    // Αυτή είναι τιμή/τεμ ή /kg — κρατάμε σαν fallback
+                    if (!unitPriceVal) {
+                        const p = parsePrice(ownText.split('/')[0]);
+                        if (p && p > 0) unitPriceVal = p;
+                    }
+                    continue;
+                }
+
+                const parsed = parsePrice(ownText);
+                if (parsed && parsed > 0 && parsed < 999) {
+                    packagePriceVal = parsed;
+                    break; // Βρήκαμε τελική τιμή — σταμάτα
+                }
             }
+
+            // Τελική τιμή = package price. Αν δε βρέθηκε, unit price σαν fallback
+            priceNum = packagePriceVal || unitPriceVal;
         } else {
             // Υπόλοιπα supermarkets: γενική λογική
             const priceEl = card.querySelector(config.price) || card.querySelector('[class*="price"]');
