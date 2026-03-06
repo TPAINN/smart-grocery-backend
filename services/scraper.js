@@ -110,31 +110,25 @@ const extractDataInBrowser = (storeName, config) => {
                                       / τεμ\.\s*$/.test(txt.trim());
 
         if (storeName === 'MyMarket') {
-            // 🎯 ΑΚΡΙΒΕΙΣ SELECTORS ΜΟΝΟ ΓΙΑ ΤΗΝ ΤΕΛΙΚΗ ΤΙΜΗ ΠΩΛΗΣΗΣ (Αγνοεί το "Τιμή κιλού")
-            // Στοχεύουμε αποκλειστικά τα div/spans που κρατάνε την τιμή του καλαθιού
-            const mainPriceEl = card.querySelector(
-                '.selling-unit-row .price, ' + 
-                '.product-full--final-price, ' + 
-                '.teaser-prices-wrapper span.font-semibold:not(.diagonal-line)'
-            );
+            // 🎯 ΑΚΡΙΒΕΙΣ SELECTORS ΜΟΝΟ ΓΙΑ ΤΗΝ ΤΕΛΙΚΗ ΤΙΜΗ ΠΩΛΗΣΗΣ
+            // Αφαιρέσαμε το σκέτο .font-semibold γιατί έπιανε την τιμή τεμαχίου!
+            const mainPriceEl = card.querySelector('.selling-unit-row .price, .product-full--final-price');
 
             if (mainPriceEl) {
                 priceNum = parsePrice(mainPriceEl.innerText || mainPriceEl.textContent);
             } 
             
-            // Fallback (Σε περίπτωση που αλλάξει κάτι στο DOM, αλλά με αυστηρούς αποκλεισμούς)
+            // Fallback (Σε περίπτωση που αλλάξει κάτι στο DOM)
             if (!priceNum) {
                 const candidates = Array.from(card.querySelectorAll('.font-semibold, .price'));
                 for (const el of candidates) {
                     if (el.classList.contains('diagonal-line')) continue;
 
-                    // Αγνοούμε ρητά τα wrappers που κρατάνε την τιμή μονάδας ή τα πολύ μικρά κείμενα
-                    if (el.closest('.base-price-wrapper') || el.closest('[class*="base-price"]')) continue;
-                    if (el.closest('.text-\\[6px\\]') || el.closest('.text-\\[7px\\]')) continue;
+                    // ΑΓΝΟΟΥΜΕ ρητά τα wrappers που κρατάνε την τιμή μονάδας/κιλού!
+                    if (el.closest('.measure-label-wrapper') || el.closest('.measurment-unit-row') || el.closest('.base-price-wrapper') || el.closest('[class*="base-price"]')) continue;
 
                     const txt = (el.innerText || el.textContent || '').trim();
                     if (!txt || !txt.includes('€')) continue;
-                    if (isUnitPrice(txt)) continue;
 
                     const parsed = parsePrice(txt);
                     if (parsed && parsed > 0 && parsed < 999) { 
