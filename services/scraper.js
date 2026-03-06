@@ -33,7 +33,7 @@ const STORE_CONFIGS = {
     'ΑΒ Βασιλόπουλος': { card: 'article,[data-testid^="product-block"]', name: '[data-testid="product-name"],[data-testid="product-block-name-link"]', price: '.sc-dqia0p-8,[data-testid="product-block-price"]', promo: '[data-testid="tag-promo-label"]' },
     'Σκλαβενίτης': { card: '.product, li.item, .product-list > div, .product-card', name: 'h4 a, h4, .product__title a, .product__name a', price: '.price, [data-price]', oldPrice: 'del, .price.old', promo: '.offer-span, .text-minus' },
     'Κρητικός': { card: '[class*="ProductListItem_root"], div[class*="ProductListItem"]', name: '[class*="ProductListItem_title"]', price: '[class*="ProductListItem_finalPrice"]', promo: '[class*="ProductListItem_badgeOffer"]' },
-    'MyMarket': { card: 'article, .product, .product-item, .product-card, .products-listing > div, div.relative.flex.flex-col', name: '.line-clamp-2', price: '.font-semibold:not(.diagonal-line):not([class*="unit"]):not([class*="Unit"]), .price:not(.unit-price):not(.per-unit)', oldPrice: '.diagonal-line', promo: '.product-note-tag', nextBtn: 'a[rel="next"],[data-mkey="next"]', finalPriceOnly: true },
+    'MyMarket': { card: 'article, .product, .product-item, .product-card, .products-listing > div, div.relative.flex.flex-col', name: '.line-clamp-2', oldPrice: '.diagonal-line', promo: '.product-note-tag', nextBtn: 'a[rel="next"],[data-mkey="next"]' },
     'Μασούτης': { card: '.product-item, .col-product', name: '.productTitle', price: '.price', promo: '.pDscntPercent', loader: '.lds-spinner' },
     'Market In': { card: '.product-grid-box, .product', name: '.product-ttl', price: '.new-price', oldPrice: '.old-price', promo: '.disc-value', nextBtn: 'span.material-icons, a.next' },
     'Γαλαξίας': { card: '.product-card, .col', name: '.text-black-i, h2', price: 'span[style*="rgb(2, 88, 165)"]', promo: '.bg-secondary.text-primary' }
@@ -41,7 +41,7 @@ const STORE_CONFIGS = {
 
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
-// 🟢 NΕΟ: Η Μπάρα Προόδου στο CLI
+// 🟢 Η Μπάρα Προόδου στο CLI
 let globalIsScraping = false; 
 let totalJobs = 0;
 let completedJobs = 0;
@@ -62,31 +62,20 @@ const extractDataInBrowser = (storeName, config) => {
     // 🧠 SMART PRICE PARSER
     const parsePrice = (text) => {
         if (!text) return null;
-        
-        // 1. Απομονώνουμε την τιμή συσκευασίας (συχνά η τιμή κιλού είναι δίπλα στο ίδιο text)
-        // Κόβουμε τα πάντα μετά το πρώτο "€"
         let baseText = text.replace(/\s+/g, ' ').split('€')[0].trim();
-        
-        // 2. Κρατάμε ΜΟΝΟ αριθμούς, τελείες και κόμματα
         let cleanText = baseText.replace(/[^\d,.]/g, '');
         if (!cleanText) return null;
 
-        // 3. ΠΕΡΙΠΤΩΣΗ 1: Υπάρχει κανονικά κόμμα ή τελεία
         if (cleanText.includes(',') || cleanText.includes('.')) {
             cleanText = cleanText.replace(',', '.');
             let finalNum = parseFloat(cleanText);
-            
-            // Sanity Check: Αν βγήκε 250.00 λόγω κακού text content, το ρίχνουμε στα φυσιολογικά
             if (finalNum > 300) return finalNum / 100;
             return finalNum;
         } 
         
-        // 4. ΠΕΡΙΠΤΩΣΗ 2 (ΤΟ BUG ΤΟΥ ΑΒ): Το DOM μας έδωσε τα ψηφία κολλητά (π.χ. "250")
         const num = parseInt(cleanText, 10);
         if (isNaN(num)) return null;
 
-        // Στα Supermarket, μια τιμή > 99€ (χωρίς δεκαδικά) είναι πρακτικά αδύνατη.
-        // Ειδικά στον ΑΒ, πάντα εκφράζεται σε λεπτά όταν λείπει το κόμμα.
         if (num > 99 || storeName === 'ΑΒ Βασιλόπουλος') {
             return num / 100;
         }
@@ -115,32 +104,43 @@ const extractDataInBrowser = (storeName, config) => {
             if (abName) name = (abName.textContent || '').trim();
         }
         
-        // ── Τιμή: τελική τιμή συσκευασίας, ΟΧΙ τιμή/τεμάχιο ή τιμή/κιλό ──────────
-        // Regex (πλέον πιάνει και τα "/ τεμ", "/ kg" με κενά)
+        // ── Τιμή: τελική τιμή συσκευασίας ──────────
         const isUnitPrice = (txt) => /\/\s*(τεμ|kg|lt|κιλ|λίτρ|100g|100ml)/i.test(txt) ||
                                       /ανά\s*(κιλό|λίτρο|τεμ|kg|lt)/i.test(txt) ||
                                       / τεμ\.\s*$/.test(txt.trim());
 
         if (storeName === 'MyMarket') {
-            // MyMarket DOM: Χρησιμοποιούμε τον config.price selector για να αγνοήσουμε εξαρχής class="unit" κλπ.
-            const candidates = Array.from(card.querySelectorAll(config.price));
-            for (const el of candidates) {
-                if (el.classList.contains('diagonal-line')) continue; // παλιά τιμή
-                
-                const txt = (el.innerText || el.textContent || '').trim();
-                if (!txt) continue;
-                
-                // Διπλός έλεγχος: Ελέγχουμε αν το κείμενο, ο γονέας ή το επόμενο sibling έχει "/τεμ" κλπ
-                const parentTxt = el.parentElement ? (el.parentElement.innerText || el.parentElement.textContent || '') : '';
-                const nextSiblingTxt = el.nextElementSibling ? (el.nextElementSibling.innerText || el.nextElementSibling.textContent || '') : '';
+            // 🎯 ΑΚΡΙΒΕΙΣ SELECTORS ΜΟΝΟ ΓΙΑ ΤΗΝ ΤΕΛΙΚΗ ΤΙΜΗ ΠΩΛΗΣΗΣ (Αγνοεί το "Τιμή κιλού")
+            // Στοχεύουμε αποκλειστικά τα div/spans που κρατάνε την τιμή του καλαθιού
+            const mainPriceEl = card.querySelector(
+                '.selling-unit-row .price, ' + 
+                '.product-full--final-price, ' + 
+                '.teaser-prices-wrapper span.font-semibold:not(.diagonal-line)'
+            );
 
-                if (isUnitPrice(txt) || isUnitPrice(parentTxt) || isUnitPrice(nextSiblingTxt)) continue;
-                if (isUnitPrice(el.closest('span,div')?.textContent || '')) continue;
+            if (mainPriceEl) {
+                priceNum = parsePrice(mainPriceEl.innerText || mainPriceEl.textContent);
+            } 
+            
+            // Fallback (Σε περίπτωση που αλλάξει κάτι στο DOM, αλλά με αυστηρούς αποκλεισμούς)
+            if (!priceNum) {
+                const candidates = Array.from(card.querySelectorAll('.font-semibold, .price'));
+                for (const el of candidates) {
+                    if (el.classList.contains('diagonal-line')) continue;
 
-                const parsed = parsePrice(txt);
-                if (parsed && parsed > 0 && parsed < 999) { 
-                    priceNum = parsed; 
-                    break; 
+                    // Αγνοούμε ρητά τα wrappers που κρατάνε την τιμή μονάδας ή τα πολύ μικρά κείμενα
+                    if (el.closest('.base-price-wrapper') || el.closest('[class*="base-price"]')) continue;
+                    if (el.closest('.text-\\[6px\\]') || el.closest('.text-\\[7px\\]')) continue;
+
+                    const txt = (el.innerText || el.textContent || '').trim();
+                    if (!txt || !txt.includes('€')) continue;
+                    if (isUnitPrice(txt)) continue;
+
+                    const parsed = parsePrice(txt);
+                    if (parsed && parsed > 0 && parsed < 999) { 
+                        priceNum = parsed; 
+                        break; 
+                    }
                 }
             }
         } else {
@@ -148,12 +148,11 @@ const extractDataInBrowser = (storeName, config) => {
             const priceEl = card.querySelector(config.price) || card.querySelector('[class*="price"]');
             if (priceEl) {
                 const rawText = (priceEl.innerText || priceEl.textContent || '');
-                // Αν περιέχει "/τεμ" κλπ, κόψε το πρώτο μέρος
                 priceNum = parsePrice(isUnitPrice(rawText) ? rawText.split('/')[0] : rawText);
             }
         }
         
-        // Παλιά Τιμή (αν υπάρχει)
+        // Παλιά Τιμή
         if (config.oldPrice) {
             const oldPriceEl = card.querySelector(config.oldPrice);
             if (oldPriceEl) oldPriceNum = parsePrice(oldPriceEl.innerText || oldPriceEl.textContent);
@@ -289,7 +288,7 @@ async function scrapeTask({ page, data: { url, storeName } }) {
     const config = STORE_CONFIGS[storeName];
     const allFound = new Map();
     
-    // Retry Logic (Δοκιμάζει το ίδιο Link έως και 3 φορές αν φάει timeout)
+    // Retry Logic
     let retries = 3;
     while (retries > 0) {
         try {
@@ -297,7 +296,7 @@ async function scrapeTask({ page, data: { url, storeName } }) {
             await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36');
             
             await page.setRequestInterception(true);
-            page.removeAllListeners('request'); // Καθαρισμός προηγούμενων listeners σε retries
+            page.removeAllListeners('request'); 
             page.on('request', (req) => {
                 if (['image', 'media', 'font'].includes(req.resourceType()) || req.url().includes('google-analytics')) req.abort();
                 else req.continue();
@@ -403,7 +402,7 @@ async function runWebScraper(targetStore = null) {
 
     const cluster = await Cluster.launch({
         concurrency: Cluster.CONCURRENCY_PAGE, 
-        maxConcurrency: 6, 
+        maxConcurrency: 4, 
         timeout: 600000, 
         puppeteerOptions: {
             headless: "new",
