@@ -10,14 +10,21 @@ const rateLimit  = require('express-rate-limit');
 const http       = require('http');
 const { Server } = require('socket.io');
 
+// Models & Services
 const { startCronJobs, runWebScraper, getScrapingStatus } = require('./services/scraper');
 const { populateRecipes } = require('./services/recipeScraper');
+const Message = require('./models/Message');
 
-const chatRoutes = require('./routes/chat');
-app.use('/api/chat', chatRoutes);
-
+// Initializations
 const app    = express();
 const server = http.createServer(app);
+
+// Routes
+const pricesRoutes  = require('./routes/prices');
+const authRoutes    = require('./routes/auth');
+const listRoutes    = require('./routes/lists');
+const recipeRoutes  = require('./routes/recipes');
+const chatRoutes    = require('./routes/chat');
 
 // 🔴 FIX: CORS whitelist
 const allowedOrigins = (process.env.ALLOWED_ORIGINS || 'http://localhost:5173').split(',');
@@ -26,7 +33,7 @@ const io = new Server(server, {
   cors: { origin: allowedOrigins }
 });
 
-// ── CORS ──────────────────────────────────────────────────
+// ── CORS & Middleware ────────────────────────────────────
 app.use(cors({
   origin: (origin, callback) => {
     if (!origin || allowedOrigins.includes(origin)) return callback(null, true);
@@ -37,7 +44,6 @@ app.use(cors({
 app.use(express.json());
 
 // ── Rate Limiting ─────────────────────────────────────────
-// 🔴 FIX: Brute force protection
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 20,
@@ -61,24 +67,18 @@ mongoose.connect(dbURI)
 // ── Background Jobs ───────────────────────────────────────
 startCronJobs();
 
-// ── Routes ────────────────────────────────────────────────
-const pricesRoutes  = require('./routes/prices');
-const authRoutes    = require('./routes/auth');
-const listRoutes    = require('./routes/lists');
-const recipeRoutes  = require('./routes/recipes');
-
+// ── Routes Registration ───────────────────────────────────
 app.use('/api/prices',  pricesRoutes);
-app.use('/api/auth',    authLimiter, authRoutes); // 🔴 FIX: Rate limit
+app.use('/api/auth',    authLimiter, authRoutes);
 app.use('/api/lists',   listRoutes);
 app.use('/api/recipes', recipeRoutes);
+app.use('/api/chat',    chatRoutes);
 
-// ── Status ────────────────────────────────────────────────
+// ── Status & Actions ──────────────────────────────────────
 app.get('/api/status', (req, res) => {
   res.status(200).json({ isScraping: getScrapingStatus() });
 });
 
-// ── Force Scrape (protected) ──────────────────────────────
-// 🔴 FIX: Χωρίς hardcoded fallback secret
 app.get('/api/force-scrape', (req, res) => {
   if (!process.env.CRON_SECRET || req.query.secret !== process.env.CRON_SECRET) {
     return res.status(403).json({ message: 'Απαγορεύεται η πρόσβαση.' });
@@ -95,7 +95,6 @@ app.get('/api/force-recipes', (req, res) => {
   res.status(200).send('👨‍🍳 Το Recipe Scraper ξεκίνησε!');
 });
 
-// ── Health Check ──────────────────────────────────────────
 app.get('/api/health', (req, res) => res.status(200).send('OK'));
 
 // ── WebSockets / Shared Cart & Chat ───────────────────────
@@ -111,18 +110,18 @@ io.on('connection', (socket) => {
     socket.to(data.shareKey).emit('receive_item', data.item);
   });
 
-  // ΝΕΟ: Λήψη και αποστολή μηνύματος CHAT
   socket.on('send_message', async (data) => {
-    // 1. Αποθήκευση στη βάση (για να το βρουν όσοι μπουν αργότερα)
-    const newMessage = new Message({
-      shareKey: data.shareKey,
-      senderName: data.senderName,
-      text: data.text
-    });
-    await newMessage.save();
-
-    // 2. Αποστολή στους υπόλοιπους που είναι online τώρα
-    socket.to(data.shareKey).emit('receive_message', newMessage);
+    try {
+        const newMessage = new Message({
+          shareKey: data.shareKey,
+          senderName: data.senderName,
+          text: data.text
+        });
+        await newMessage.save();
+        socket.to(data.shareKey).emit('receive_message', newMessage);
+    } catch (err) {
+        console.error("❌ Σφάλμα αποθήκευσης μηνύματος:", err);
+    }
   });
 });
 
