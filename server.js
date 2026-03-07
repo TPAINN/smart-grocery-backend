@@ -13,6 +13,9 @@ const { Server } = require('socket.io');
 const { startCronJobs, runWebScraper, getScrapingStatus } = require('./services/scraper');
 const { populateRecipes } = require('./services/recipeScraper');
 
+const chatRoutes = require('./routes/chat');
+app.use('/api/chat', chatRoutes);
+
 const app    = express();
 const server = http.createServer(app);
 
@@ -95,7 +98,7 @@ app.get('/api/force-recipes', (req, res) => {
 // ── Health Check ──────────────────────────────────────────
 app.get('/api/health', (req, res) => res.status(200).send('OK'));
 
-// ── WebSockets / Shared Cart ──────────────────────────────
+// ── WebSockets / Shared Cart & Chat ───────────────────────
 io.on('connection', (socket) => {
   console.log('🔌 Νέα σύνδεση WebSocket:', socket.id);
 
@@ -106,6 +109,20 @@ io.on('connection', (socket) => {
 
   socket.on('send_item', (data) => {
     socket.to(data.shareKey).emit('receive_item', data.item);
+  });
+
+  // ΝΕΟ: Λήψη και αποστολή μηνύματος CHAT
+  socket.on('send_message', async (data) => {
+    // 1. Αποθήκευση στη βάση (για να το βρουν όσοι μπουν αργότερα)
+    const newMessage = new Message({
+      shareKey: data.shareKey,
+      senderName: data.senderName,
+      text: data.text
+    });
+    await newMessage.save();
+
+    // 2. Αποστολή στους υπόλοιπους που είναι online τώρα
+    socket.to(data.shareKey).emit('receive_message', newMessage);
   });
 });
 
