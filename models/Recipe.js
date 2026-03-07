@@ -10,7 +10,8 @@ const recipeSchema = new mongoose.Schema({
     fat: { type: Number },     // Γραμμάρια λιπαρών
     isHealthy: { type: Boolean, default: true },
     ingredients: [{ type: String }],
-    instructions: [{ type: String }], // Βήμα-βήμα εκτέλεση
+    instructions: [{ type: String }],
+    tags: [{ type: String }],
     url: { type: String, unique: true } // Για να μην διπλοεγγράφουμε
 }, { timestamps: true });
 
