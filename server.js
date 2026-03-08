@@ -20,11 +20,13 @@ const app    = express();
 const server = http.createServer(app);
 
 // Routes
-const pricesRoutes  = require('./routes/prices');
-const authRoutes    = require('./routes/auth');
-const listRoutes    = require('./routes/lists');
-const recipeRoutes  = require('./routes/recipes');
-const chatRoutes    = require('./routes/chat');
+const pricesRoutes    = require('./routes/prices');
+const authRoutes      = require('./routes/auth');
+const listRoutes      = require('./routes/lists');
+const recipeRoutes    = require('./routes/recipes');
+const chatRoutes      = require('./routes/chat');
+const splitBillRoutes = require('./routes/splitbill');
+const mealPlanRoutes  = require('./routes/mealplan');
 
 // 🔴 FIX: CORS whitelist
 const allowedOrigins = (process.env.ALLOWED_ORIGINS || 'http://localhost:5173').split(',');
@@ -68,11 +70,13 @@ mongoose.connect(dbURI)
 startCronJobs();
 
 // ── Routes Registration ───────────────────────────────────
-app.use('/api/prices',  pricesRoutes);
-app.use('/api/auth',    authLimiter, authRoutes);
-app.use('/api/lists',   listRoutes);
-app.use('/api/recipes', recipeRoutes);
-app.use('/api/chat',    chatRoutes);
+app.use('/api/prices',    pricesRoutes);
+app.use('/api/auth',      authLimiter, authRoutes);
+app.use('/api/lists',     listRoutes);
+app.use('/api/recipes',   recipeRoutes);
+app.use('/api/chat',      chatRoutes);
+app.use('/api/split',     splitBillRoutes);
+app.use('/api/meal-plan', mealPlanRoutes);
 
 // ── Status & Actions ──────────────────────────────────────
 app.get('/api/status', (req, res) => {
@@ -122,6 +126,30 @@ io.on('connection', (socket) => {
     } catch (err) {
         console.error("❌ Σφάλμα αποθήκευσης μηνύματος:", err);
     }
+  });
+
+  // ── Split Bill real-time events ───────────────────────────
+  socket.on('split_join', (sessionId) => {
+    socket.join(`split_${sessionId}`);
+    console.log(`💸 Split room joined: split_${sessionId}`);
+  });
+
+  // Notify all participants when someone accepts/rejects
+  socket.on('split_consent_update', (data) => {
+    socket.to(`split_${data.sessionId}`).emit('split_consent_update', {
+      userId:   data.userId,
+      username: data.username,
+      status:   data.status,    // 'accepted' | 'rejected'
+      allAccepted: data.allAccepted,
+    });
+  });
+
+  // Notify when payment is executed
+  socket.on('split_payment_complete', (data) => {
+    socket.to(`split_${data.sessionId}`).emit('split_payment_complete', {
+      sessionId: data.sessionId,
+      results:   data.results,
+    });
   });
 });
 
