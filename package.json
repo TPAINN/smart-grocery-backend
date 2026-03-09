@@ -21,6 +21,7 @@
     "express": "^5.2.1",
     "express-rate-limit": "^8.2.1",
     "fs-extra": "^11.3.3",
+    "git-filter-repo": "^0.0.30",
     "groq-sdk": "^0.37.0",
     "jsonwebtoken": "^9.0.3",
     "mongodb": "^7.1.0",
