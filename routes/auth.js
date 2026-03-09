@@ -1,4 +1,4 @@
-// routes/auth.js — Fixed & Complete
+// routes/auth.js — Complete with persistent bidirectional friends
 const express  = require('express');
 const bcrypt   = require('bcryptjs');
 const jwt      = require('jsonwebtoken');
@@ -8,7 +8,6 @@ const User     = require('../models/User');
 const router     = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET || 'super_secret_jwt_key_smart_grocery';
 
-// io reference injected by server.js for real-time friend notifications
 let _io = null;
 router.setIO = (io) => { _io = io; };
 
@@ -19,6 +18,11 @@ const safeUser = (u) => ({
   email:     u.email,
   isPremium: u.isPremium,
   shareKey:  u.shareKey,
+  friends:   (u.friends || []).map(f => ({
+    shareKey: f.shareKey,
+    username: f.username,
+    addedAt:  f.addedAt,
+  })),
 });
 
 const isRealEmailDomain = async (email) => {
@@ -32,7 +36,6 @@ const isRealEmailDomain = async (email) => {
 
 const isValidEmailFormat = (email) => /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email);
 
-// ── Auth middleware (local) ────────────────────────────────────────────────────
 const authMiddleware = (req, res, next) => {
   const header = req.headers.authorization;
   if (!header?.startsWith('Bearer ')) return res.status(401).json({ message: 'Απαιτείται σύνδεση.' });
@@ -47,7 +50,7 @@ const authMiddleware = (req, res, next) => {
   }
 };
 
-// ── 1. ΕΓΓΡΑΦΗ ────────────────────────────────────────────────────────────────
+// ── 1. REGISTER ───────────────────────────────────────────────────────────────
 router.post('/register', async (req, res) => {
   try {
     const { name, email, password } = req.body;
@@ -60,7 +63,7 @@ router.post('/register', async (req, res) => {
 
     const domainExists = await isRealEmailDomain(cleanEmail);
     if (!domainExists)
-      return res.status(400).json({ message: 'Το email δεν φαίνεται να υπάρχει. Έλεγξε ξανά.' });
+      return res.status(400).json({ message: 'Το email δεν φαίνεται να υπάρχει.' });
 
     if (await User.findOne({ email: cleanEmail }))
       return res.status(400).json({ message: 'Το email χρησιμοποιείται ήδη.' });
@@ -71,11 +74,11 @@ router.post('/register', async (req, res) => {
     res.status(201).json({ token, user: safeUser(newUser) });
   } catch (err) {
     console.error('Register error:', err);
-    res.status(500).json({ message: 'Σφάλμα διακομιστή κατά την εγγραφή.' });
+    res.status(500).json({ message: 'Σφάλμα κατά την εγγραφή.' });
   }
 });
 
-// ── 2. ΣΥΝΔΕΣΗ ────────────────────────────────────────────────────────────────
+// ── 2. LOGIN ──────────────────────────────────────────────────────────────────
 router.post('/login', async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -86,31 +89,28 @@ router.post('/login', async (req, res) => {
     const token = jwt.sign({ id: user._id, isPremium: user.isPremium }, JWT_SECRET, { expiresIn: '30d' });
     res.json({ token, user: safeUser(user) });
   } catch (err) {
-    res.status(500).json({ message: 'Σφάλμα διακομιστή κατά τη σύνδεση.' });
+    res.status(500).json({ message: 'Σφάλμα κατά τη σύνδεση.' });
   }
 });
 
-// ── 3. BY-KEY (FIX: returns both name + username for compatibility) ────────────
+// ── 3. BY-KEY ─────────────────────────────────────────────────────────────────
 router.get('/by-key/:shareKey', async (req, res) => {
   try {
-    // Case-insensitive, trimmed search — was the cause of "user not found" bug
     const key = req.params.shareKey?.trim().toUpperCase();
     if (!key || key.length < 6)
       return res.status(400).json({ message: 'Μη έγκυρο Share Key.' });
 
     const user = await User.findOne({ shareKey: { $regex: new RegExp(`^${key}$`, 'i') } })
       .select('name shareKey');
-    if (!user)
-      return res.status(404).json({ message: 'Χρήστης δεν βρέθηκε.' });
+    if (!user) return res.status(404).json({ message: 'Χρήστης δεν βρέθηκε.' });
 
-    // Return BOTH name AND username — frontend uses both
     res.json({ name: user.name, username: user.name, shareKey: user.shareKey });
   } catch (err) {
     res.status(500).json({ message: 'Σφάλμα διακομιστή.' });
   }
 });
 
-// ── 4. SEARCH USERS (για split bill partner search) ───────────────────────────
+// ── 4. SEARCH ─────────────────────────────────────────────────────────────────
 router.get('/search', authMiddleware, async (req, res) => {
   try {
     const { q } = req.query;
@@ -132,42 +132,134 @@ router.get('/search', authMiddleware, async (req, res) => {
   }
 });
 
-// ── 5. NOTIFY FRIEND (persistent mutual friendship) ───────────────────────────
-// Called when A adds B. Verifies the target exists, then emits a real-time socket
-// event to B's personal room (`user_${B.shareKey}`). Even if B is offline, when
-// they reconnect and re-join their room they'll see the stored friends list
-// (stored in localStorage on their device after the socket event fires).
-router.post('/notify-friend', authMiddleware, async (req, res) => {
+// ── 5. ADD FRIEND (bidirectional, persistent) ─────────────────────────────────
+// When A adds B:
+//  • B is added to A's friends array in DB
+//  • A is added to B's friends array in DB  ← the key fix
+//  • B gets a real-time socket event if online
+router.post('/add-friend', authMiddleware, async (req, res) => {
   try {
-    const { targetShareKey, from } = req.body;
-    if (!targetShareKey) return res.status(400).json({ message: 'Απαιτείται targetShareKey.' });
+    const { targetShareKey } = req.body;
+    if (!targetShareKey)
+      return res.status(400).json({ message: 'Απαιτείται targetShareKey.' });
+
+    const me = await User.findById(req.userId).select('name shareKey friends');
+    if (!me) return res.status(404).json({ message: 'Χρήστης δεν βρέθηκε.' });
+
+    const key = targetShareKey.trim().toUpperCase();
+    if (key === me.shareKey)
+      return res.status(400).json({ message: 'Δεν μπορείς να προσθέσεις τον εαυτό σου.' });
 
     const target = await User.findOne({
-      shareKey: { $regex: new RegExp(`^${targetShareKey.trim().toUpperCase()}$`, 'i') }
-    }).select('name shareKey');
-
+      shareKey: { $regex: new RegExp(`^${key}$`, 'i') }
+    }).select('name shareKey friends');
     if (!target) return res.status(404).json({ message: 'Χρήστης δεν βρέθηκε.' });
 
-    // Emit to target's personal room via Socket.io
-    if (_io) {
-      _io.to(`user_${target.shareKey}`).emit('friend_added', {
-        targetShareKey: target.shareKey,
-        from: { shareKey: from.shareKey, username: from.name || from.username, name: from.name || from.username },
+    // Add B to A's friends (if not already there)
+    const aAlreadyHasB = me.friends.some(f => f.shareKey === target.shareKey);
+    if (!aAlreadyHasB) {
+      await User.findByIdAndUpdate(me._id, {
+        $push: { friends: { shareKey: target.shareKey, username: target.name, addedAt: new Date() } }
       });
     }
 
-    res.json({ success: true, target: { name: target.name, shareKey: target.shareKey } });
+    // Add A to B's friends (if not already there) — the bidirectional part
+    const bAlreadyHasA = target.friends.some(f => f.shareKey === me.shareKey);
+    if (!bAlreadyHasA) {
+      await User.findByIdAndUpdate(target._id, {
+        $push: { friends: { shareKey: me.shareKey, username: me.name, addedAt: new Date() } }
+      });
+    }
+
+    // Notify B in real-time (if online)
+    if (_io) {
+      _io.to(`user_${target.shareKey}`).emit('friend_added', {
+        targetShareKey: target.shareKey,
+        from: { shareKey: me.shareKey, username: me.name, name: me.name },
+      });
+    }
+
+    console.log(`👥 Friendship: ${me.name} ↔ ${target.name}`);
+    res.json({
+      success: true,
+      friend: { shareKey: target.shareKey, username: target.name, addedAt: new Date() },
+      alreadyFriends: aAlreadyHasB,
+    });
+  } catch (err) {
+    console.error('add-friend error:', err);
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// ── 6. REMOVE FRIEND (bidirectional) ─────────────────────────────────────────
+router.delete('/remove-friend/:targetShareKey', authMiddleware, async (req, res) => {
+  try {
+    const me = await User.findById(req.userId).select('shareKey name');
+    if (!me) return res.status(404).json({ message: 'Χρήστης δεν βρέθηκε.' });
+
+    const key = req.params.targetShareKey?.trim().toUpperCase();
+
+    // Remove from both sides
+    await User.findByIdAndUpdate(req.userId, {
+      $pull: { friends: { shareKey: key } }
+    });
+    await User.findOneAndUpdate(
+      { shareKey: { $regex: new RegExp(`^${key}$`, 'i') } },
+      { $pull: { friends: { shareKey: me.shareKey } } }
+    );
+
+    res.json({ success: true });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
 });
 
-// ── 6. GET ME ─────────────────────────────────────────────────────────────────
+// ── 7. GET MY FRIENDS (called on app load) ────────────────────────────────────
+router.get('/friends', authMiddleware, async (req, res) => {
+  try {
+    const user = await User.findById(req.userId).select('friends');
+    if (!user) return res.status(404).json({ message: 'Χρήστης δεν βρέθηκε.' });
+    res.json({ friends: user.friends || [] });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// ── 8. GET ME ─────────────────────────────────────────────────────────────────
 router.get('/me', authMiddleware, async (req, res) => {
   try {
     const user = await User.findById(req.userId).select('-password');
     if (!user) return res.status(404).json({ message: 'Χρήστης δεν βρέθηκε.' });
     res.json({ user: safeUser(user) });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// ── Legacy: notify-friend (kept for backward compat, calls add-friend logic) ──
+router.post('/notify-friend', authMiddleware, async (req, res) => {
+  req.body.targetShareKey = req.body.targetShareKey || req.body.from?.shareKey;
+  // Forward to add-friend
+  const { targetShareKey } = req.body;
+  if (!targetShareKey) return res.status(400).json({ message: 'Απαιτείται targetShareKey.' });
+  try {
+    const me     = await User.findById(req.userId).select('name shareKey friends');
+    const target = await User.findOne({ shareKey: { $regex: new RegExp(`^${targetShareKey.trim().toUpperCase()}$`, 'i') } }).select('name shareKey friends');
+    if (!target) return res.status(404).json({ message: 'Χρήστης δεν βρέθηκε.' });
+
+    if (!target.friends.some(f => f.shareKey === me.shareKey)) {
+      await User.findByIdAndUpdate(target._id, { $push: { friends: { shareKey: me.shareKey, username: me.name, addedAt: new Date() } } });
+    }
+    if (!me.friends.some(f => f.shareKey === target.shareKey)) {
+      await User.findByIdAndUpdate(me._id, { $push: { friends: { shareKey: target.shareKey, username: target.name, addedAt: new Date() } } });
+    }
+    if (_io) {
+      _io.to(`user_${target.shareKey}`).emit('friend_added', {
+        targetShareKey: target.shareKey,
+        from: { shareKey: me.shareKey, username: me.name, name: me.name },
+      });
+    }
+    res.json({ success: true, target: { name: target.name, shareKey: target.shareKey } });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
