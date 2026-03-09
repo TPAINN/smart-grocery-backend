@@ -1,4 +1,4 @@
-// models/User.js
+// models/User.js — with persistent friends list
 const mongoose = require('mongoose');
 
 const userSchema = new mongoose.Schema({
@@ -6,7 +6,7 @@ const userSchema = new mongoose.Schema({
   email:    { type: String, required: true, unique: true },
   password: { type: String, required: true },
 
-  // 🎫 SHARE KEY για το Shared Cart
+  // 🎫 Permanent unique share key — generated once at registration, never changes
   shareKey: {
     type: String,
     unique: true,
@@ -17,8 +17,20 @@ const userSchema = new mongoose.Schema({
         .substring(0, 15),
   },
 
+  // 👥 Persistent friends list — array of shareKeys
+  // Both sides are stored: when A adds B, both A's and B's docs are updated
+  friends: [{
+    shareKey:  { type: String, required: true },
+    username:  { type: String, required: true },
+    addedAt:   { type: Date, default: Date.now },
+  }],
+
   isPremium: { type: Boolean, default: false },
   createdAt: { type: Date,    default: Date.now },
 });
+
+// Index for fast friend lookup
+userSchema.index({ shareKey: 1 });
+userSchema.index({ 'friends.shareKey': 1 });
 
 module.exports = mongoose.model('User', userSchema);
