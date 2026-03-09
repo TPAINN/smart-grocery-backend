@@ -1,235 +1,86 @@
-// routes/mealplan.js — AI Meal Planner powered by Google Gemini
+// routes/mealplan.js — AI Meal Planner powered by Groq (llama-3.3-70b-versatile)
 const express = require('express');
+const Groq    = require('groq-sdk');
 const router  = express.Router();
 const Product = require('../models/Product');
 
-// ── Helpers ───────────────────────────────────────────────
-const normalize = (text) =>
-  (text || '').toLowerCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .trim();
+const normalize  = (text) => (text||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim();
+const escapeRegex = (s) => s.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
 
-const escapeRegex = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-
-// Find best price for an ingredient in the database
 async function findBestPrice(ingredient) {
-  const norm  = normalize(ingredient);
-  const words = norm.split(/\s+/).filter(w => w.length > 2);
+  const words = normalize(ingredient).split(/\s+/).filter(w => w.length > 2);
   if (!words.length) return null;
-
-  // Try multi-word search first, then fall back to first keyword
   const queries = [
-    words.map(w => ({ normalizedName: { $regex: escapeRegex(w), $options: 'i' } })),
-    [{ normalizedName: { $regex: escapeRegex(words[0]), $options: 'i' } }],
+    words.map(w => ({ normalizedName: { $regex: escapeRegex(w), $options:'i' } })),
+    [{ normalizedName: { $regex: escapeRegex(words[0]), $options:'i' } }],
   ];
-
-  for (const andFilters of queries) {
-    const results = await Product.find({ $and: andFilters })
-      .sort({ price: 1 })
-      .limit(3)
-      .lean();
-    if (results.length > 0) {
-      return {
-        name:  results[0].name,
-        price: results[0].price,
-        store: results[0].supermarket,
-        unit:  results[0].pricePerUnit || null,
-      };
-    }
+  for (const f of queries) {
+    const r = await Product.find({ $and: f }).sort({ price:1 }).limit(3).lean();
+    if (r.length) return { name:r[0].name, price:r[0].price, store:r[0].supermarket, unit:r[0].pricePerUnit||null };
   }
   return null;
 }
 
-// ── Gemini Call ───────────────────────────────────────────
-async function callGemini(prompt) {
-  const GEMINI_KEY = process.env.GEMINI_API_KEY;
-  if (!GEMINI_KEY) throw new Error('Missing GEMINI_API_KEY');
-
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_KEY}`;
-
-  const body = {
-    contents: [{ parts: [{ text: prompt }] }],
-    generationConfig: {
-      temperature: 0.7,
-      maxOutputTokens: 8192,
-      responseMimeType: 'application/json',
-    },
-  };
-
-  const res = await fetch(url, {
-    method:  'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body:    JSON.stringify(body),
+async function callGroq(prompt) {
+  const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
+  const completion = await groq.chat.completions.create({
+    model: 'llama-3.3-70b-versatile',
+    messages: [
+      { role:'system', content:'Είσαι ειδικός διατροφολόγος. Απαντάς ΜΟΝΟ σε raw JSON format, χωρίς markdown, χωρίς πρόλογο.' },
+      { role:'user',   content: prompt },
+    ],
+    temperature: 0.6,
+    max_tokens: 8192,
+    response_format: { type:'json_object' },
   });
-
-  if (!res.ok) {
-    const err = await res.text();
-    throw new Error(`Gemini error ${res.status}: ${err}`);
-  }
-
-  const data   = await res.json();
-  const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text || '{}';
-  return JSON.parse(rawText.replace(/```json|```/g, '').trim());
+  const raw = completion.choices[0]?.message?.content || '{}';
+  try { return JSON.parse(raw.replace(/```json|```/g,'').trim()); }
+  catch { const m = raw.match(/\{[\s\S]*\}/); if (m) return JSON.parse(m[0]); throw new Error('JSON parse failed'); }
 }
 
-// ── Build the mega-prompt ─────────────────────────────────
 function buildPrompt({ persons, budget, restrictions, goal, days }) {
-  const restrText = restrictions?.length ? restrictions.join(', ') : 'Κανένας';
-  const goalMap = {
-    balanced:    'ισορροπημένη διατροφή',
-    weightloss:  'απώλεια βάρους (χαμηλές θερμίδες, υψηλή πρωτεΐνη)',
-    muscle:      'μυϊκή ανάπτυξη (υψηλή πρωτεΐνη, υψηλές θερμίδες)',
-    budget:      'οικονομική διατροφή (χαμηλό κόστος)',
-  };
-  const goalText = goalMap[goal] || 'ισορροπημένη διατροφή';
-
-  return `
-Είσαι ειδικός διατροφολόγος. Δημιούργησε ένα εβδομαδιαίο πρόγραμμα διατροφής για ${days} ημέρες.
-
-ΠΑΡΑΜΕΤΡΟΙ:
-- Άτομα: ${persons}
-- Εβδομαδιαίο budget: ${budget}€ (σύνολο για ψώνια, όχι ανά άτομο)
-- Διατροφικοί περιορισμοί: ${restrText}
-- Στόχος: ${goalText}
-
-ΟΔΗΓΙΕΣ:
-1. Κάθε ημέρα έχει 3 γεύματα: πρωινό, μεσημεριανό, βραδινό
-2. Τα υλικά (ingredients) να είναι ΑΠΛΑ ελληνικά ονόματα για σούπερ μάρκετ (π.χ. "γάλα", "κοτόπουλο", "ντομάτες")
-3. Κράτα τα macros ρεαλιστικά ανά γεύμα
-4. Τα ελληνικά ονόματα συνταγών να είναι σωστά
-
-Επίστρεψε ΜΟΝΟ JSON με αυτή την ακριβή δομή (χωρίς markdown):
-{
-  "plan": [
-    {
-      "day": 1,
-      "dayName": "Δευτέρα",
-      "meals": {
-        "breakfast": {
-          "name": "Ονομασία πρωινού",
-          "description": "Σύντομη περιγραφή",
-          "time": 10,
-          "macros": { "kcal": 350, "protein": 15, "carbs": 45, "fat": 10 },
-          "ingredients": ["υλικό 1", "υλικό 2", "υλικό 3"]
-        },
-        "lunch": {
-          "name": "Ονομασία μεσημεριανού",
-          "description": "Σύντομη περιγραφή",
-          "time": 25,
-          "macros": { "kcal": 550, "protein": 35, "carbs": 55, "fat": 18 },
-          "ingredients": ["υλικό 1", "υλικό 2"]
-        },
-        "dinner": {
-          "name": "Ονομασία βραδινού",
-          "description": "Σύντομη περιγραφή",
-          "time": 30,
-          "macros": { "kcal": 480, "protein": 30, "carbs": 40, "fat": 20 },
-          "ingredients": ["υλικό 1", "υλικό 2"]
-        }
-      },
-      "dayMacros": { "kcal": 1380, "protein": 80, "carbs": 140, "fat": 48 }
-    }
-  ],
-  "summary": {
-    "totalDays": ${days},
-    "avgKcalPerDay": 1400,
-    "avgProteinPerDay": 85,
-    "estimatedIngredients": ["γάλα", "αυγά", "κοτόπουλο", "ρύζι", "ντομάτες", "λάδι", "τυρί", "ψωμί", "γιαούρτι", "μακαρόνια"]
-  }
-}
-`;
+  const goalMap = { balanced:'ισορροπημένη διατροφή', weightloss:'απώλεια βάρους', muscle:'μυϊκή ανάπτυξη', budget:'οικονομική διατροφή' };
+  return `Δημιούργησε πρόγραμμα διατροφής ${days} ημερών.
+Άτομα: ${persons}, Budget: ${budget}€/εβδομάδα, Περιορισμοί: ${restrictions?.join(', ')||'Κανένας'}, Στόχος: ${goalMap[goal]||goalMap.balanced}.
+Κανόνες: κάθε ημέρα έχει breakfast/lunch/dinner, υλικά σε απλά ελληνικά ονόματα.
+Επέστρεψε ΜΟΝΟ raw JSON:
+{"plan":[{"day":1,"dayName":"Δευτέρα","meals":{"breakfast":{"name":"...","description":"...","time":10,"macros":{"kcal":350,"protein":15,"carbs":45,"fat":10},"ingredients":["υλικό"]},"lunch":{"name":"...","description":"...","time":25,"macros":{"kcal":550,"protein":35,"carbs":55,"fat":18},"ingredients":["υλικό"]},"dinner":{"name":"...","description":"...","time":30,"macros":{"kcal":480,"protein":30,"carbs":40,"fat":20},"ingredients":["υλικό"]}},"dayMacros":{"kcal":1380,"protein":80,"carbs":140,"fat":48}}],"summary":{"totalDays":${days},"avgKcalPerDay":1400,"avgProteinPerDay":85,"estimatedIngredients":["γάλα","αυγά","κοτόπουλο"]}}`;
 }
 
-// ── POST /api/meal-plan ───────────────────────────────────
 router.post('/', async (req, res) => {
-  const { persons = 2, budget = 80, restrictions = [], goal = 'balanced', days = 7 } = req.body;
-
+  const { persons=2, budget=80, restrictions=[], goal='balanced', days=7 } = req.body;
+  if (!process.env.GROQ_API_KEY) return res.status(500).json({ message:'Λείπει το GROQ_API_KEY στο .env' });
   try {
-    // 1. Call Gemini for meal plan
-    console.log('🤖 Gemini Meal Plan generation started...');
-    const prompt   = buildPrompt({ persons, budget, restrictions, goal, days });
-    const planData = await callGemini(prompt);
+    console.log('🤖 Groq llama-3.3-70b-versatile meal plan...');
+    const planData = await callGroq(buildPrompt({ persons, budget, restrictions, goal, days }));
+    if (!planData?.plan?.length) return res.status(500).json({ message:'Το AI δεν επέστρεψε πλάνο.' });
 
-    if (!planData?.plan?.length) {
-      return res.status(500).json({ message: 'Το AI δεν επέστρεψε πλάνο.' });
-    }
-
-    // 2. Collect ALL unique ingredients from the plan
     const allIngredients = new Set();
-    planData.plan.forEach(day => {
-      Object.values(day.meals).forEach(meal => {
-        (meal.ingredients || []).forEach(ing => allIngredients.add(ing.toLowerCase().trim()));
-      });
-    });
-    // Also check the summary list
-    (planData.summary?.estimatedIngredients || []).forEach(ing =>
-      allIngredients.add(ing.toLowerCase().trim())
-    );
+    planData.plan.forEach(d => Object.values(d.meals).forEach(m => (m.ingredients||[]).forEach(i => allIngredients.add(i.toLowerCase().trim()))));
+    (planData.summary?.estimatedIngredients||[]).forEach(i => allIngredients.add(i.toLowerCase().trim()));
 
-    console.log(`🛒 Looking up prices for ${allIngredients.size} ingredients...`);
-
-    // 3. Parallel price lookup for all ingredients
     const priceMap = {};
-    await Promise.all(
-      [...allIngredients].map(async (ing) => {
-        const result = await findBestPrice(ing);
-        if (result) priceMap[ing] = result;
-      })
-    );
+    await Promise.all([...allIngredients].map(async i => { const r = await findBestPrice(i); if(r) priceMap[i]=r; }));
 
-    // 4. Build the final shopping list (deduplicated, with prices)
-    const shoppingList = [...allIngredients].map(ing => ({
-      ingredient: ing,
-      found:      !!priceMap[ing],
-      price:      priceMap[ing]?.price || null,
-      store:      priceMap[ing]?.store || null,
-      productName: priceMap[ing]?.name || ing,
-      unit:       priceMap[ing]?.unit || null,
-    })).sort((a, b) => (a.found === b.found ? 0 : a.found ? -1 : 1));
+    const shoppingList = [...allIngredients].map(i => ({
+      ingredient:i, found:!!priceMap[i], price:priceMap[i]?.price||null,
+      store:priceMap[i]?.store||null, productName:priceMap[i]?.name||i, unit:priceMap[i]?.unit||null,
+    })).sort((a,b) => a.found===b.found ? 0 : a.found ? -1 : 1);
 
-    // 5. Enrich plan with per-ingredient prices
-    const enrichedPlan = planData.plan.map(day => ({
-      ...day,
-      meals: Object.fromEntries(
-        Object.entries(day.meals).map(([mealType, meal]) => [
-          mealType,
-          {
-            ...meal,
-            ingredients: (meal.ingredients || []).map(ing => ({
-              name:  ing,
-              found: !!priceMap[ing.toLowerCase().trim()],
-              price: priceMap[ing.toLowerCase().trim()]?.price || null,
-              store: priceMap[ing.toLowerCase().trim()]?.store || null,
-            })),
-          },
-        ])
-      ),
+    const enrichedPlan = planData.plan.map(d => ({
+      ...d,
+      meals: Object.fromEntries(Object.entries(d.meals).map(([t,m]) => [t,{
+        ...m,
+        ingredients:(m.ingredients||[]).map(i => ({ name:i, found:!!priceMap[i.toLowerCase().trim()], price:priceMap[i.toLowerCase().trim()]?.price||null, store:priceMap[i.toLowerCase().trim()]?.store||null })),
+      }])),
     }));
 
-    // 6. Calculate estimated cost
-    const totalEstimatedCost = shoppingList
-      .filter(i => i.found)
-      .reduce((sum, i) => sum + (i.price || 0), 0);
-
-    const foundCount = shoppingList.filter(i => i.found).length;
-
-    res.json({
-      plan:         enrichedPlan,
-      summary:      planData.summary,
-      shoppingList,
-      stats: {
-        totalIngredients: allIngredients.size,
-        foundInDB:        foundCount,
-        notFound:         allIngredients.size - foundCount,
-        estimatedCost:    Math.round(totalEstimatedCost * 100) / 100,
-        coveragePercent:  Math.round((foundCount / allIngredients.size) * 100),
-      },
-    });
-
-  } catch (err) {
-    console.error('❌ Meal Plan Error:', err.message);
-    res.status(500).json({ message: `Σφάλμα AI: ${err.message}` });
+    const found = shoppingList.filter(i => i.found).length;
+    const cost  = shoppingList.filter(i => i.found).reduce((s,i) => s+(i.price||0), 0);
+    res.json({ plan:enrichedPlan, summary:planData.summary, shoppingList, stats:{ totalIngredients:allIngredients.size, foundInDB:found, notFound:allIngredients.size-found, estimatedCost:Math.round(cost*100)/100, coveragePercent:Math.round(found/allIngredients.size*100) } });
+  } catch(err) {
+    console.error('❌ Meal Plan:', err.message);
+    res.status(500).json({ message:`Σφάλμα AI: ${err.message}` });
   }
 });
 
