@@ -1,10 +1,12 @@
-// routes/mealplan.js — AI Meal Planner powered by Groq (llama-3.3-70b-versatile)
+// routes/mealplan.js — Premium AI Meal Planner (Groq llama-3.3-70b-versatile)
+// Evidence-based nutrition: whole foods, Mediterranean diet principles,
+// high protein, complete micronutrients, Zigzag calorie cycling
 const express = require('express');
 const Groq    = require('groq-sdk');
 const router  = express.Router();
 const Product = require('../models/Product');
 
-const normalize  = (text) => (text||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim();
+const normalize   = (t) => (t||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim();
 const escapeRegex = (s) => s.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
 
 async function findBestPrice(ingredient) {
@@ -26,10 +28,16 @@ async function callGroq(prompt) {
   const completion = await groq.chat.completions.create({
     model: 'llama-3.3-70b-versatile',
     messages: [
-      { role:'system', content:'Είσαι ειδικός διατροφολόγος. Απαντάς ΜΟΝΟ σε raw JSON format, χωρίς markdown, χωρίς πρόλογο.' },
-      { role:'user',   content: prompt },
+      {
+        role: 'system',
+        content: `Είσαι πιστοποιημένος διαιτολόγος με εξειδίκευση στη Μεσογειακή διατροφή και αθλητική διατροφή. 
+Ακολουθείς αυστηρά επιστημονικές κατευθυντήριες γραμμές (EFSA, WHO, Αμερικανική Ακαδημία Διατροφής).
+Δίνεις έμφαση σε: τοπικά ελληνικά/μεσογειακά προϊόντα, αγνά υλικά, πλήρη πρόσληψη μικροθρεπτικών.
+Απαντάς ΜΟΝΟ σε raw JSON χωρίς markdown, χωρίς κείμενο εκτός JSON.`
+      },
+      { role:'user', content: prompt },
     ],
-    temperature: 0.6,
+    temperature: 0.5,
     max_tokens: 8192,
     response_format: { type:'json_object' },
   });
@@ -38,25 +46,127 @@ async function callGroq(prompt) {
   catch { const m = raw.match(/\{[\s\S]*\}/); if (m) return JSON.parse(m[0]); throw new Error('JSON parse failed'); }
 }
 
-function buildPrompt({ persons, budget, restrictions, goal, days }) {
-  const goalMap = { balanced:'ισορροπημένη διατροφή', weightloss:'απώλεια βάρους', muscle:'μυϊκή ανάπτυξη', budget:'οικονομική διατροφή' };
-  return `Δημιούργησε πρόγραμμα διατροφής ${days} ημερών.
-Άτομα: ${persons}, Budget: ${budget}€/εβδομάδα, Περιορισμοί: ${restrictions?.join(', ')||'Κανένας'}, Στόχος: ${goalMap[goal]||goalMap.balanced}.
-Κανόνες: κάθε ημέρα έχει breakfast/lunch/dinner, υλικά σε απλά ελληνικά ονόματα.
-Επέστρεψε ΜΟΝΟ raw JSON:
-{"plan":[{"day":1,"dayName":"Δευτέρα","meals":{"breakfast":{"name":"...","description":"...","time":10,"macros":{"kcal":350,"protein":15,"carbs":45,"fat":10},"ingredients":["υλικό"]},"lunch":{"name":"...","description":"...","time":25,"macros":{"kcal":550,"protein":35,"carbs":55,"fat":18},"ingredients":["υλικό"]},"dinner":{"name":"...","description":"...","time":30,"macros":{"kcal":480,"protein":30,"carbs":40,"fat":20},"ingredients":["υλικό"]}},"dayMacros":{"kcal":1380,"protein":80,"carbs":140,"fat":48}}],"summary":{"totalDays":${days},"avgKcalPerDay":1400,"avgProteinPerDay":85,"estimatedIngredients":["γάλα","αυγά","κοτόπουλο"]}}`;
+function buildPrompt({ persons, budget, restrictions, goal, days, tdee, zigzag, gender, age, weight, height, activityLevel }) {
+  const isVegan = restrictions?.includes('vegan');
+  const isVegetarian = restrictions?.includes('vegetarian') || isVegan;
+  const restrText = restrictions?.length ? restrictions.join(', ') : 'Κανένας';
+
+  const goalMap = {
+    balanced:   'ισορροπημένη Μεσογειακή διατροφή',
+    weightloss: 'απώλεια βάρους (θερμιδικό έλλειμμα, υψηλή πρωτεΐνη)',
+    muscle:     'μυϊκή ανάπτυξη (2g πρωτεΐνη/kg σωματικού βάρους, πλεόνασμα θερμίδων)',
+    budget:     'οικονομική αλλά θρεπτική διατροφή',
+  };
+
+  const calTarget = tdee ? `${tdee} kcal/ημέρα (TDEE υπολογισμένο)` : 'ισορροπημένες θερμίδες';
+  const zigzagInfo = zigzag ? `Zigzag ημέρες: ${zigzag.join(', ')} kcal` : '';
+  const personInfo = (age && weight && height)
+    ? `Προφίλ: ${gender==='male'?'Άνδρας':'Γυναίκα'}, ${age} ετών, ${height}cm, ${weight}kg, δραστηριότητα: ${activityLevel}`
+    : '';
+
+  const meatGuidelines = isVegan
+    ? 'VEGAN: Μόνο φυτικές πρωτεΐνες (όσπρια, tofu, τέμπε, quinoa, ξηροί καρποί). Υποχρεωτικό B12 από εμπλουτισμένα τρόφιμα.'
+    : isVegetarian
+    ? 'VEGETARIAN: Αυγά, γαλακτοκομικά, φυτικές πρωτεΐνες. Ψάρι ΜΟΝΟ αν η συνταγή είναι pescatarian.'
+    : `ΜΗ VEGAN: 
+      - Πρωινό: Χωρίς κρέας. Καλά λιπαρά (αυγά, ελαιόλαδο, ξηροί καρποί, αβοκάντο, γιαούρτι, τυρί φέτα).
+      - Μεσημεριανό (ΚΥΡΙΟ ΓΕΥΜΑ): Κρέας (κοτόπουλο, γαλοπούλα, αρνί, μοσχάρι) ΜΕ συνοδευτικό (λαχανικά, ρύζι, πατάτες, ψωμί). ΕΞΑΙΡΕΣΗ: 1-2 φορές/εβδομάδα ψάρι (σαρδέλες, τσιπούρα, σολομός) ή τόνος σε σαλάτα.
+      - Βραδινό: Ελαφρύ (σαλάτες, γιαούρτι, τυρί, λαχανικά, αυγά, σούπα).`;
+
+  const nutritionRules = `
+ΚΑΝΟΝΕΣ ΔΙΑΤΡΟΦΗΣ (αυστηρά):
+1. Πρωτεΐνη: ΤΟΥΛΑΧΙΣΤΟΝ 30g ανά γεύμα (συνολικά 1.6-2.2g/kg για άτομο)
+2. Ίνες: 25-35g/ημέρα (λαχανικά, όσπρια, δημητριακά ολικής)
+3. Καλά λιπαρά: Ελαιόλαδο, αβοκάντο, ξηροί καρποί, λιπαρά ψάρια
+4. Μικροθρεπτικά: Κάθε ημέρα να περιέχει: Vit C (εσπεριδοειδή/πιπεριές), Vit D (αυγά/ψάρι/εκτός αν vegan), Σίδηρο, Ασβέστιο, Μαγνήσιο
+5. ΑΠΟΦΥΓΗ: Επεξεργασμένα τρόφιμα, ζάχαρη, trans λιπαρά, fast food
+6. ΕΛΛΗΝΙΚΑ ΠΡΟΪΟΝΤΑ: Φέτα, ελιές, ελαιόλαδο, ντομάτα, αγγούρι, κολοκυθάκια, μελιτζάνες, κριθαράκι, χόρτα, μέλι, γιαούρτι στραγγιστό
+7. Νερό: Υπενθύμιση 8-10 ποτήρια/ημέρα σε κάθε ημέρα`;
+
+  return `${personInfo}
+Στόχος θερμίδων: ${calTarget}
+${zigzagInfo}
+Στόχος διατροφής: ${goalMap[goal] || goalMap.balanced}
+Άτομα: ${persons}, Ημέρες: ${days}, Budget: ${budget}€/εβδομάδα
+Περιορισμοί: ${restrText}
+
+${meatGuidelines}
+${nutritionRules}
+
+Δημιούργησε πλάνο ${days} ημερών με ΠΡΑΓΜΑΤΙΚΕΣ Ελληνικές/Μεσογειακές συνταγές.
+Το πρωινό ΠΑΝΤΑ ελαφρύ (300-450 kcal), το μεσημεριανό ΠΑΝΤΑ κυρίως γεύμα (600-800 kcal), το βραδινό ΠΑΝΤΑ ελαφρύ (350-500 kcal).
+
+Επέστρεψε ΜΟΝΟ αυτό το JSON:
+{
+  "plan": [
+    {
+      "day": 1,
+      "dayName": "Δευτέρα",
+      "waterGlasses": 8,
+      "meals": {
+        "breakfast": {
+          "name": "Ομελέτα με φέτα και ντομάτα",
+          "description": "Κλασική ελληνική ομελέτα με φρέσκα λαχανικά",
+          "prepTip": "Χρησιμοποίησε ελαιόλαδο αντί βούτυρο",
+          "time": 10,
+          "macros": { "kcal": 380, "protein": 22, "carbs": 12, "fat": 28, "fiber": 2 },
+          "micronutrients": ["Vit B12", "Σελήνιο", "Χολίνη"],
+          "ingredients": ["αυγά", "φέτα", "ντομάτα", "ελαιόλαδο", "μαϊντανός"]
+        },
+        "lunch": {
+          "name": "Κοτόπουλο με ρύζι και σαλάτα",
+          "description": "Ψητό κοτόπουλο με ρύζι basmati και χωριάτικη σαλάτα",
+          "prepTip": "Μαρινάρισε με λεμόνι, ελαιόλαδο, ρίγανη",
+          "time": 35,
+          "macros": { "kcal": 650, "protein": 48, "carbs": 58, "fat": 18, "fiber": 5 },
+          "micronutrients": ["Vit B3", "Σελήνιο", "Φώσφορος", "Vit C"],
+          "ingredients": ["κοτόπουλο", "ρύζι basmati", "ντομάτα", "αγγούρι", "ελιές", "φέτα", "λεμόνι", "ελαιόλαδο"]
+        },
+        "dinner": {
+          "name": "Γιαούρτι με μέλι και καρύδια",
+          "description": "Στραγγιστό γιαούρτι με ελληνικό μέλι, καρύδια και κανέλα",
+          "prepTip": "Χρησιμοποίησε γιαούρτι 2% ή πλήρες",
+          "time": 5,
+          "macros": { "kcal": 320, "protein": 20, "carbs": 28, "fat": 12, "fiber": 1 },
+          "micronutrients": ["Ασβέστιο", "Προβιοτικά", "Vit D", "Ωμέγα-3"],
+          "ingredients": ["γιαούρτι στραγγιστό", "μέλι", "καρύδια", "κανέλα"]
+        }
+      },
+      "dayMacros": { "kcal": 1350, "protein": 90, "carbs": 98, "fat": 58, "fiber": 8 },
+      "nutritionNote": "Σήμερα υψηλή πρωτεΐνη από αυγά + κοτόπουλο. Καλά λιπαρά από ελαιόλαδο και καρύδια."
+    }
+  ],
+  "summary": {
+    "totalDays": ${days},
+    "avgKcalPerDay": 1400,
+    "avgProteinPerDay": 95,
+    "avgFiberPerDay": 28,
+    "keyNutrients": ["Πρωτεΐνη", "Ωμέγα-3", "Vit C", "Ασβέστιο", "Σίδηρος"],
+    "dietStyle": "Μεσογειακή",
+    "estimatedIngredients": ["αυγά", "κοτόπουλο", "γιαούρτι στραγγιστό", "φέτα", "ελαιόλαδο", "ρύζι", "ντομάτες", "αγγούρι"]
+  }
+}`;
 }
 
 router.post('/', async (req, res) => {
-  const { persons=2, budget=80, restrictions=[], goal='balanced', days=7 } = req.body;
-  if (!process.env.GROQ_API_KEY) return res.status(500).json({ message:'Λείπει το GROQ_API_KEY στο .env' });
+  const {
+    persons=2, budget=80, restrictions=[], goal='balanced', days=7,
+    tdee=null, zigzag=null, gender='male', age=30, weight=75, height=175, activityLevel='moderate'
+  } = req.body;
+
+  if (!process.env.GROQ_API_KEY)
+    return res.status(500).json({ message: 'Λείπει το GROQ_API_KEY στο .env' });
+
   try {
-    console.log('🤖 Groq llama-3.3-70b-versatile meal plan...');
-    const planData = await callGroq(buildPrompt({ persons, budget, restrictions, goal, days }));
-    if (!planData?.plan?.length) return res.status(500).json({ message:'Το AI δεν επέστρεψε πλάνο.' });
+    console.log(`🤖 Groq llama-3.3-70b | ${days}d | TDEE:${tdee||'auto'} | Goal:${goal}`);
+    const planData = await callGroq(buildPrompt({ persons, budget, restrictions, goal, days, tdee, zigzag, gender, age, weight, height, activityLevel }));
+    if (!planData?.plan?.length)
+      return res.status(500).json({ message: 'Το AI δεν επέστρεψε πλάνο.' });
 
     const allIngredients = new Set();
-    planData.plan.forEach(d => Object.values(d.meals).forEach(m => (m.ingredients||[]).forEach(i => allIngredients.add(i.toLowerCase().trim()))));
+    planData.plan.forEach(d =>
+      Object.values(d.meals).forEach(m => (m.ingredients||[]).forEach(i => allIngredients.add(i.toLowerCase().trim())))
+    );
     (planData.summary?.estimatedIngredients||[]).forEach(i => allIngredients.add(i.toLowerCase().trim()));
 
     const priceMap = {};
@@ -69,18 +179,34 @@ router.post('/', async (req, res) => {
 
     const enrichedPlan = planData.plan.map(d => ({
       ...d,
-      meals: Object.fromEntries(Object.entries(d.meals).map(([t,m]) => [t,{
+      meals: Object.fromEntries(Object.entries(d.meals).map(([t,m]) => [t, {
         ...m,
-        ingredients:(m.ingredients||[]).map(i => ({ name:i, found:!!priceMap[i.toLowerCase().trim()], price:priceMap[i.toLowerCase().trim()]?.price||null, store:priceMap[i.toLowerCase().trim()]?.store||null })),
+        ingredients:(m.ingredients||[]).map(i => ({
+          name:i, found:!!priceMap[i.toLowerCase().trim()],
+          price:priceMap[i.toLowerCase().trim()]?.price||null,
+          store:priceMap[i.toLowerCase().trim()]?.store||null,
+        })),
       }])),
     }));
 
     const found = shoppingList.filter(i => i.found).length;
     const cost  = shoppingList.filter(i => i.found).reduce((s,i) => s+(i.price||0), 0);
-    res.json({ plan:enrichedPlan, summary:planData.summary, shoppingList, stats:{ totalIngredients:allIngredients.size, foundInDB:found, notFound:allIngredients.size-found, estimatedCost:Math.round(cost*100)/100, coveragePercent:Math.round(found/allIngredients.size*100) } });
+
+    res.json({
+      plan: enrichedPlan,
+      summary: planData.summary,
+      shoppingList,
+      stats: {
+        totalIngredients: allIngredients.size,
+        foundInDB: found,
+        notFound: allIngredients.size - found,
+        estimatedCost: Math.round(cost*100)/100,
+        coveragePercent: Math.round(found/allIngredients.size*100),
+      },
+    });
   } catch(err) {
     console.error('❌ Meal Plan:', err.message);
-    res.status(500).json({ message:`Σφάλμα AI: ${err.message}` });
+    res.status(500).json({ message: `Σφάλμα AI: ${err.message}` });
   }
 });
 
