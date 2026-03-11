@@ -396,7 +396,7 @@ async function runWebScraper(targetStore = null) {
 
     const cluster = await Cluster.launch({
         concurrency: Cluster.CONCURRENCY_PAGE, 
-        maxConcurrency: 5, 
+        maxConcurrency: 6, 
         timeout: 600000, 
         puppeteerOptions: {
             headless: "new",
