@@ -5,6 +5,8 @@ const userSchema = new mongoose.Schema({
   name:     { type: String, required: true },
   email:    { type: String, required: true, unique: true },
   password: { type: String, required: true },
+  stripeCustomerId:      { type: String, default: null },
+  stripePaymentMethodId: { type: String, default: null },
 
   // 🎫 Permanent unique share key — generated once at registration, never changes
   shareKey: {
