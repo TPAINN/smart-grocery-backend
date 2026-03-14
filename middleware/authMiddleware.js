@@ -1,6 +1,6 @@
 // middleware/authMiddleware.js
 const jwt = require('jsonwebtoken');
-const JWT_SECRET = process.env.JWT_SECRET || 'super_secret_jwt_key_smart_grocery';
+const { JWT_SECRET } = require('../config/jwt');
 
 function auth(req, res, next) {
   const token = req.header('Authorization');
