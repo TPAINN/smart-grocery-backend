@@ -4,9 +4,9 @@ const bcrypt   = require('bcryptjs');
 const jwt      = require('jsonwebtoken');
 const dns      = require('dns').promises;
 const User     = require('../models/User');
+const { JWT_SECRET } = require('../config/jwt');
 
-const router     = express.Router();
-const JWT_SECRET = process.env.JWT_SECRET || 'super_secret_jwt_key_smart_grocery';
+const router = express.Router();
 
 let _io = null;
 router.setIO = (io) => { _io = io; };

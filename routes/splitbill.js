@@ -10,15 +10,16 @@ const jwt            = require('jsonwebtoken');
 const SplitSession   = require('../models/SplitSession');
 const StarredPartner = require('../models/StarredPartner');
 const User           = require('../models/User');
+const { JWT_SECRET } = require('../config/jwt');
 
 // ── Auth middleware ──────────────────────────────────────────────────────────
 const authMiddleware = (req, res, next) => {
   const header = req.headers.authorization;
   if (!header?.startsWith('Bearer ')) return res.status(401).json({ message: 'Απαιτείται σύνδεση.' });
   try {
-    const decoded = jwt.verify(header.split(' ')[1], process.env.JWT_SECRET);
+    const decoded = jwt.verify(header.split(' ')[1], JWT_SECRET);
     req.userId   = decoded.id || decoded._id || decoded.userId;
-    req.username = decoded.username;
+    req.username = decoded.username || decoded.name || null;
     next();
   } catch {
     return res.status(401).json({ message: 'Μη έγκυρο token.' });
@@ -51,13 +52,13 @@ router.post('/partners', authMiddleware, async (req, res) => {
   const { username, nickname, defaultSplitPercent } = req.body;
   if (!username) return res.status(400).json({ message: 'Απαιτείται username.' });
   try {
-    const partner = await User.findOne({ username: { $regex: new RegExp(`^${username}$`, 'i') } });
+    const partner = await User.findOne({ name: { $regex: new RegExp(`^${username}$`, 'i') } });
     if (!partner) return res.status(404).json({ message: `Δεν βρέθηκε χρήστης "${username}".` });
     if (partner._id.toString() === req.userId) return res.status(400).json({ message: 'Δεν μπορείς να προσθέσεις τον εαυτό σου.' });
     const existing = await StarredPartner.findOne({ userId: req.userId, partnerId: partner._id });
     if (existing) return res.status(409).json({ message: 'Ήδη starred partner.' });
     const sp = await StarredPartner.create({
-      userId: req.userId, partnerId: partner._id, partnerName: partner.username,
+      userId: req.userId, partnerId: partner._id, partnerName: partner.name,
       nickname: nickname || '', defaultSplitPercent: defaultSplitPercent || 50,
       status: 'active', acceptedAt: new Date(),
     });
@@ -170,7 +171,7 @@ router.post('/quick', authMiddleware, async (req, res) => {
       }
       return {
         userId: uid,
-        username: user?.username || 'Unknown',
+        username: user?.name || 'Unknown',
         sharePercent: Math.round(percent * 100) / 100,
         shareAmount: Math.round(totalAmount * percent / 100 * 100) / 100,
         status: uid === req.userId ? 'accepted' : 'pending',
@@ -245,7 +246,7 @@ router.post('/receipt/split', authMiddleware, async (req, res) => {
         ? (i === 0 ? splitPercent : (100 - splitPercent) / (count - 1))
         : 100 / count;
       return {
-        userId: uid, username: user?.username || 'Unknown',
+        userId: uid, username: user?.name || 'Unknown',
         sharePercent: Math.round(percent * 100) / 100,
         shareAmount: Math.round(totalAmount * percent / 100 * 100) / 100,
         status: uid === req.userId ? 'accepted' : 'pending',
@@ -453,7 +454,7 @@ router.post('/sessions/:id/consent', authMiddleware, async (req, res) => {
     }
 
     try {
-      const decoded = jwt.verify(consentToken, process.env.JWT_SECRET);
+      const decoded = jwt.verify(consentToken, JWT_SECRET);
       if (decoded.userId !== req.userId || decoded.action !== 'split_consent') throw new Error('Invalid');
     } catch { return res.status(401).json({ message: 'Μη έγκυρο consent token.' }); }
 
