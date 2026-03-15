@@ -30,9 +30,20 @@ const MARKET_IN_URLS =[
 ];
 
 const STORE_CONFIGS = {
-    'ΑΒ Βασιλόπουλος': { card: 'article,[data-testid^="product-block"]', name: '[data-testid="product-name"],[data-testid="product-block-name-link"]', price: '.sc-dqia0p-8,[data-testid="product-block-price"]', promo: '[data-testid="tag-promo-label"]' },
+    'ΑΒ Βασιλόπουλος': { 
+        card: '[data-testid="product-block"]', 
+        name: '[data-testid="product-name"], [data-testid="product-block-name-link"]', 
+        price: '[data-testid="product-block-price"]', 
+        oldPrice: '[data-testid="product-block-old-price"]', 
+        promo: '[data-testid="tag-promo-label"]' 
+    },
     'Σκλαβενίτης': { card: '.product, li.item, .product-list > div, .product-card', name: 'h4 a, h4, .product__title a, .product__name a', price: '.price, [data-price]', oldPrice: 'del, .price.old', promo: '.offer-span, .text-minus' },
-    'Κρητικός': { card: '[class*="ProductListItem_root"], div[class*="ProductListItem"]', name: '[class*="ProductListItem_title"]', price: '[class*="ProductListItem_finalPrice"]', promo: '[class*="ProductListItem_badgeOffer"]' },
+    'Κρητικός': { 
+        card: '[class*="ProductListItem_productItem"]', 
+        name: '[class*="ProductListItem_title"]', 
+        price: '[class*="ProductListItem_finalPrice"]', 
+        promo: '[class*="ProductListItem_badge"]' 
+    },
     'MyMarket': { card: 'article, .product, .product-item, .product-card, .products-listing > div, div.relative.flex.flex-col', name: '.line-clamp-2', oldPrice: '.diagonal-line', promo: '.product-note-tag', nextBtn: 'a[rel="next"],[data-mkey="next"]' },
     'Μασούτης': { card: '.product-item, .col-product', name: '.productTitle', price: '.price', promo: '.pDscntPercent', loader: '.lds-spinner' },
     'Market In': { card: '.product-grid-box, .product', name: '.product-ttl', price: '.new-price', oldPrice: '.old-price', promo: '.disc-value', nextBtn: 'span.material-icons, a.next' },
@@ -97,11 +108,22 @@ const extractDataInBrowser = (storeName, config) => {
         let name = '', priceNum = null, oldPriceNum = null, isSale = false, is1plus1 = false, imgUrl = null;
         
         // Όνομα
-        const nameEl = card.querySelector(config.name) || card.querySelector('h2, h3, h4, [class*="title"],[data-qa-label*="title"]');
-        if (nameEl) name = (nameEl.textContent || nameEl.innerText || '').trim();
-        if (!name && storeName === 'ΑΒ Βασιλόπουλος') {
-            const abName = card.querySelector('[data-testid="product-name"]');
-            if (abName) name = (abName.textContent || '').trim();
+        let nameEl = card.querySelector(config.name) || card.querySelector('h2, h3, h4, [class*="title"],[data-qa-label*="title"]');
+        
+        // 🎯 ΕΙΔΙΚΗ ΛΟΓΙΚΗ ΓΙΑ ΑΒ (Ενώνει το Brand με το Όνομα Προϊόντος)
+        if (storeName === 'ΑΒ Βασιλόπουλος') {
+            const brandEl = card.querySelector('[data-testid="product-brand"]');
+            const specificNameEl = card.querySelector('[data-testid="product-name"]');
+            const brandText = brandEl ? brandEl.innerText.trim() : '';
+            const nameText = specificNameEl ? specificNameEl.innerText.trim() : '';
+            
+            if (brandText || nameText) {
+                name = `${brandText} ${nameText}`.trim();
+            } else if (nameEl) {
+                name = (nameEl.textContent || nameEl.innerText || '').trim();
+            }
+        } else {
+            if (nameEl) name = (nameEl.textContent || nameEl.innerText || '').trim();
         }
         
         // ── Τιμή: τελική τιμή συσκευασίας ──────────
@@ -110,26 +132,17 @@ const extractDataInBrowser = (storeName, config) => {
                                       / τεμ\.\s*$/.test(txt.trim());
 
         if (storeName === 'MyMarket') {
-            // 🎯 ΑΚΡΙΒΕΙΣ SELECTORS ΜΟΝΟ ΓΙΑ ΤΗΝ ΤΕΛΙΚΗ ΤΙΜΗ ΠΩΛΗΣΗΣ
-            // Αφαιρέσαμε το σκέτο .font-semibold γιατί έπιανε την τιμή τεμαχίου!
             const mainPriceEl = card.querySelector('.selling-unit-row .price, .product-full--final-price');
-
             if (mainPriceEl) {
                 priceNum = parsePrice(mainPriceEl.innerText || mainPriceEl.textContent);
             } 
-            
-            // Fallback (Σε περίπτωση που αλλάξει κάτι στο DOM)
             if (!priceNum) {
                 const candidates = Array.from(card.querySelectorAll('.font-semibold, .price'));
                 for (const el of candidates) {
                     if (el.classList.contains('diagonal-line')) continue;
-
-                    // ΑΓΝΟΟΥΜΕ ρητά τα wrappers που κρατάνε την τιμή μονάδας/κιλού!
                     if (el.closest('.measure-label-wrapper') || el.closest('.measurment-unit-row') || el.closest('.base-price-wrapper') || el.closest('[class*="base-price"]')) continue;
-
                     const txt = (el.innerText || el.textContent || '').trim();
                     if (!txt || !txt.includes('€')) continue;
-
                     const parsed = parsePrice(txt);
                     if (parsed && parsed > 0 && parsed < 999) { 
                         priceNum = parsed; 
@@ -138,7 +151,6 @@ const extractDataInBrowser = (storeName, config) => {
                 }
             }
         } else {
-            // Υπόλοιπα supermarkets: γενική λογική
             const priceEl = card.querySelector(config.price) || card.querySelector('[class*="price"]');
             if (priceEl) {
                 const rawText = (priceEl.innerText || priceEl.textContent || '');
@@ -199,12 +211,53 @@ async function scrapeSklavenitis(page, storeName, config, allFound) {
 }
 async function scrapeAB(page, storeName, config, allFound) {
     let fails = 0;
+    
+    // ΠΕΡΙΜΕΝΟΥΜΕ ΝΑ ΦΥΓΕΙ ΤΟ ΑΡΧΙΚΟ LOADING ANIMATION
+    try { 
+        await page.waitForSelector('[data-testid="loading-animation"]', { hidden: true, timeout: 15000 }); 
+    } catch(e) {}
+    
+    // ΠΕΡΙΜΕΝΟΥΜΕ ΤΙΣ ΚΑΡΤΕΣ ΤΩΝ ΠΡΟΪΟΝΤΩΝ
+    try { 
+        await page.waitForSelector(config.card, { timeout: 15000 }); 
+    } catch(e) {}
+
     while (fails < 15) {
         const products = await page.evaluate(extractDataInBrowser, storeName, config);
         let addedNew = false;
-        products.forEach(p => { if (!allFound.has(p.normalizedName)) { allFound.set(p.normalizedName, p); addedNew = true; }});
-        if (addedNew) { fails = 0; } else { fails++; }
-        await page.keyboard.press('PageDown'); await sleep(500); 
+        products.forEach(p => { 
+            if (!allFound.has(p.normalizedName)) { 
+                allFound.set(p.normalizedName, p); 
+                addedNew = true; 
+            }
+        });
+        
+        if (addedNew) { 
+            fails = 0; 
+        } else { 
+            fails++; 
+        }
+        
+        // Σκρολάρουμε δυναμικά προς τα κάτω για να "δούμε" τον loader και να ξεκινήσει το φόρτωμα
+        await page.evaluate(() => {
+            window.scrollBy(0, window.innerHeight * 2);
+        });
+        
+        // Δίνουμε 0.5s να εμφανιστεί ο Loader στο DOM (αν έχει κι άλλα προϊόντα)
+        await sleep(500);
+
+        // Ελέγχουμε αν εμφανίστηκε ο Loader
+        const hasSpinner = await page.evaluate(() => {
+            return !!document.querySelector('[data-testid="loading-spinner"]');
+        });
+
+        if (hasSpinner) {
+            // Αν υπάρχει ο Loader, περιμένουμε λίγο παραπάνω για να φορτώσουν τα νέα προϊόντα (να γίνει το API call)
+            await sleep(2500); 
+        } else {
+            // Αν δεν υπάρχει, ίσως έχουμε φτάσει στο τέλος ή αργεί το layout, κάνουμε ένα μικρό wait
+            await sleep(600);
+        }
     }
 }
 async function scrapeGalaxias(page, storeName, config, allFound) {
@@ -268,12 +321,27 @@ async function scrapeMasoutis(page, storeName, config, allFound) {
 }
 async function scrapeKritikos(page, storeName, config, allFound) {
     let fails = 0;
+    
+    // ΠΕΡΙΜΕΝΟΥΜΕ ΝΑ ΦΥΓΕΙ ΤΟ ΛΕΥΚΟ ΠΛΑΙΣΙΟ (Hydration delay)
+    try { 
+        await page.waitForSelector(config.card, { timeout: 15000 }); 
+    } catch (e) { 
+        console.log(`\n⏳ Timeout αναμονής προϊόντων στον Κρητικό.`); 
+    }
+
     while (fails < 15) {
         const products = await page.evaluate(extractDataInBrowser, storeName, config);
         let addedNew = false;
         products.forEach(p => { if (!allFound.has(p.normalizedName)) { allFound.set(p.normalizedName, p); addedNew = true; }});
+        
         if (addedNew) { fails = 0; } else { fails++; }
-        for (let i = 0; i < 6; i++) { await page.keyboard.press('PageDown'); await sleep(100); }
+        
+        // Κάνουμε πιο ομαλό scroll για τον Κρητικό
+        for (let i = 0; i < 6; i++) { 
+            await page.keyboard.press('PageDown'); 
+            await sleep(150); 
+        }
+        await sleep(600);
     }
 }
 
