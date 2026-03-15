@@ -38,13 +38,15 @@ async function translateTexts(texts, targetLang = 'EL') {
 
     for (const batch of batches) {
       const params = new URLSearchParams();
-      params.append('auth_key', apiKey);
       params.append('target_lang', targetLang);
       batch.forEach(t => params.append('text', t));
 
       const res = await fetch(DEEPL_BASE, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        headers: {
+          'Authorization': `DeepL-Auth-Key ${apiKey}`,
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
         body: params.toString(),
       });
 
@@ -172,6 +174,9 @@ async function populateRecipes(options = {}) {
     cuisine = '',
     diet = '',
     offset = 0,
+    maxReadyTime = 60,
+    sort = 'popularity',
+    type = '',
   } = options;
 
   console.log(`👨‍🍳 Fetching ${count} recipes from Spoonacular...`);
@@ -186,10 +191,12 @@ async function populateRecipes(options = {}) {
       addRecipeInformation: 'true',
       fillIngredients: 'true',
       instructionsRequired: 'true',
-      sort: 'popularity',
+      sort,
+      maxReadyTime: String(maxReadyTime),
       ...(query   && { query }),
       ...(cuisine && { cuisine }),
       ...(diet    && { diet }),
+      ...(type    && { type }),
     });
 
     const searchRes = await fetch(`${SPOONACULAR_BASE}/recipes/complexSearch?${searchParams}`);
@@ -325,16 +332,72 @@ async function seedRecipes() {
   console.log('🌱 Starting recipe database seed...');
 
   const queries = [
-    { query: 'healthy chicken', cuisine: 'mediterranean', count: 10 },
-    { query: 'pasta',           cuisine: 'italian',       count: 10 },
-    { query: 'salad',           cuisine: '',              count: 8 },
-    { query: 'breakfast healthy', cuisine: '',             count: 8 },
-    { query: 'soup',            cuisine: 'mediterranean', count: 6 },
-    { query: 'fish seafood',    cuisine: 'mediterranean', count: 8 },
-    { query: 'dessert healthy', cuisine: '',              count: 6 },
-    { query: 'snack protein',   cuisine: '',              count: 6 },
-    { query: 'vegan bowl',      cuisine: '',              count: 6 },
-    { query: 'greek',           cuisine: 'greek',         count: 10 },
+    // ── Καθημερινά κλασικά (απλά, γρήγορα, νόστιμα) ──────────────────────
+    { query: 'chicken breast baked',           count: 6, maxReadyTime: 45 },
+    { query: 'pork chops potatoes oven',       count: 5, maxReadyTime: 60 },
+    { query: 'meatballs tomato sauce',          count: 4, maxReadyTime: 50 },
+    { query: 'baked salmon lemon',              count: 5, maxReadyTime: 40 },
+    { query: 'grilled chicken vegetables',      count: 5, maxReadyTime: 40 },
+    { query: 'beef stew vegetables',            count: 4, maxReadyTime: 60 },
+
+    // ── Ζυμαρικά & Comfort food ───────────────────────────────────────────
+    { query: 'spaghetti bolognese',             count: 3, cuisine: 'italian' },
+    { query: 'pasta chicken garlic',            count: 4, maxReadyTime: 30 },
+    { query: 'carbonara',                       count: 2, cuisine: 'italian' },
+    { query: 'mac and cheese homemade',         count: 3, maxReadyTime: 40 },
+    { query: 'lasagna',                         count: 2, cuisine: 'italian' },
+
+    // ── Μεσογειακά & Ελληνικά ─────────────────────────────────────────────
+    { query: 'greek salad feta',                count: 3, cuisine: 'mediterranean' },
+    { query: 'moussaka',                        count: 2, cuisine: 'greek' },
+    { query: 'souvlaki chicken',                count: 3, cuisine: 'greek' },
+    { query: 'stuffed peppers rice',            count: 3, cuisine: 'mediterranean' },
+    { query: 'lentil soup',                     count: 3, cuisine: 'mediterranean' },
+    { query: 'chickpea stew',                   count: 3, cuisine: 'mediterranean' },
+
+    // ── Σαλάτες (χορταστικές, balanced) ───────────────────────────────────
+    { query: 'caesar salad chicken',            count: 3, maxReadyTime: 20 },
+    { query: 'quinoa bowl vegetables',          count: 4, maxReadyTime: 30 },
+    { query: 'avocado salad protein',           count: 3, maxReadyTime: 20 },
+
+    // ── Πρωινά (trending, υγιεινά) ───────────────────────────────────────
+    { query: 'banana bread healthy',            count: 3, type: 'breakfast' },
+    { query: 'overnight oats',                  count: 3, type: 'breakfast', maxReadyTime: 15 },
+    { query: 'scrambled eggs avocado toast',    count: 3, type: 'breakfast', maxReadyTime: 15 },
+    { query: 'pancakes fluffy',                 count: 3, type: 'breakfast', maxReadyTime: 25 },
+    { query: 'smoothie bowl protein',           count: 3, type: 'breakfast', maxReadyTime: 10 },
+    { query: 'omelette vegetables cheese',      count: 3, type: 'breakfast', maxReadyTime: 15 },
+
+    // ── Σνακ & Ελαφριά ───────────────────────────────────────────────────
+    { query: 'energy balls oats',               count: 3, type: 'snack', maxReadyTime: 20 },
+    { query: 'hummus homemade',                 count: 2, type: 'snack', maxReadyTime: 15 },
+    { query: 'protein bar homemade',            count: 2, type: 'snack', maxReadyTime: 20 },
+
+    // ── Σούπες (θρεπτικές) ────────────────────────────────────────────────
+    { query: 'chicken soup homemade',           count: 3, maxReadyTime: 45 },
+    { query: 'tomato soup basil',               count: 2, maxReadyTime: 30 },
+    { query: 'minestrone vegetable',            count: 2, maxReadyTime: 40 },
+
+    // ── Ψάρια & Θαλασσινά ─────────────────────────────────────────────────
+    { query: 'shrimp garlic butter',            count: 3, maxReadyTime: 20 },
+    { query: 'tuna steak seared',               count: 2, maxReadyTime: 20 },
+    { query: 'fish fillet oven vegetables',     count: 3, maxReadyTime: 35 },
+
+    // ── Γλυκά (απλά, σπιτικά) ─────────────────────────────────────────────
+    { query: 'chocolate chip cookies',          count: 2, type: 'dessert', maxReadyTime: 30 },
+    { query: 'yogurt parfait fruit granola',    count: 2, type: 'dessert', maxReadyTime: 10 },
+    { query: 'apple crumble oats',              count: 2, type: 'dessert', maxReadyTime: 40 },
+
+    // ── High Protein / Fitness ────────────────────────────────────────────
+    { query: 'chicken rice meal prep',          count: 4, maxReadyTime: 40 },
+    { query: 'turkey burger lettuce',           count: 3, maxReadyTime: 25 },
+    { query: 'egg white omelette spinach',      count: 2, maxReadyTime: 15 },
+
+    // ── One-pot / Εύκολα ──────────────────────────────────────────────────
+    { query: 'one pot rice chicken',            count: 3, maxReadyTime: 35 },
+    { query: 'stir fry vegetables chicken',     count: 3, maxReadyTime: 20 },
+    { query: 'sheet pan dinner',                count: 3, maxReadyTime: 35 },
+    { query: 'wrap chicken healthy',            count: 3, maxReadyTime: 15 },
   ];
 
   let totalAdded = 0, totalSkipped = 0;
