@@ -69,6 +69,7 @@ const recipeRoutes    = require('./routes/recipes');
 const chatRoutes      = require('./routes/chat');
 const splitBillRoutes = require('./routes/splitbill');
 const mealPlanRoutes  = require('./routes/mealplan');
+const favoritesRoutes = require('./routes/favorites');
 
 // Wire io to auth so notify-friend can emit socket events
 if (typeof authRoutes.setIO === 'function') authRoutes.setIO(io);
@@ -80,6 +81,7 @@ app.use('/api/recipes',   recipeRoutes);
 app.use('/api/chat',      chatRoutes);
 app.use('/api/split',     splitBillRoutes);
 app.use('/api/meal-plan', mealPlanRoutes);
+app.use('/api/favorites', favoritesRoutes);
 
 // ── Health & Admin ────────────────────────────────────────────────────────────
 app.get('/api/health',  (req, res) => res.status(200).send('OK'));
