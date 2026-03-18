@@ -3,6 +3,7 @@ const express = require('express');
 const router  = express.Router();
 const Recipe  = require('../models/Recipe');
 const { populateRecipes, seedRecipes } = require('../services/recipeScraper');
+const { scrapeWebRecipes, SITES }      = require('../services/webRecipeScraper');
 
 // ── GET /api/recipes — Paginated + filterable recipe list ─────────────────────
 router.get('/', async (req, res) => {
@@ -12,14 +13,18 @@ router.get('/', async (req, res) => {
     const category = req.query.category || '';     // e.g. 'Κυρίως', 'Σαλάτες'
     const cuisine  = req.query.cuisine  || '';     // e.g. 'Ελληνική'
     const tag      = req.query.tag      || '';     // e.g. 'high-protein'
+    const source   = req.query.source   || '';     // e.g. 'akis', 'gymbeam', 'spoonacular'
     const search   = req.query.search   || '';     // text search
     const sort     = req.query.sort     || 'newest'; // newest, popular, quick, protein
+    const hasMacros = req.query.hasMacros === 'true'; // filter to only recipes with nutrition data
 
     // Build filter
     const filter = {};
-    if (category) filter.category = category;
-    if (cuisine)  filter.cuisine  = cuisine;
-    if (tag)      filter.tags     = tag;
+    if (category)  filter.category  = category;
+    if (cuisine)   filter.cuisine   = cuisine;
+    if (tag)       filter.tags      = tag;
+    if (source)    filter.sourceApi = source;
+    if (hasMacros) filter.calories  = { $ne: null };
     if (search) {
       // Use text index or regex fallback
       filter.$or = [
@@ -118,6 +123,58 @@ router.post('/fetch', async (req, res) => {
     console.log('👨‍🍳 Fetch result:', result);
   } catch (err) {
     console.error('❌ Fetch error:', err);
+  }
+});
+
+// ── GET /api/recipes/sources — List available web recipe sources ──────────────
+router.get('/sources', async (req, res) => {
+  try {
+    // Count recipes per sourceApi
+    const counts = await Recipe.aggregate([
+      { $group: { _id: '$sourceApi', count: { $sum: 1 }, latest: { $max: '$createdAt' } } },
+      { $sort: { count: -1 } },
+    ]);
+
+    const sourceLabels = {
+      spoonacular: 'Spoonacular API',
+      akis:        'Άκης Πετρετζίκης',
+      panos:       'Πάνος Ιωαννίδης',
+      gymbeam:     'GymBeam',
+      nutriroots:  'NutriRoots',
+    };
+
+    res.json({
+      sources: counts.map(c => ({
+        key:    c._id,
+        label:  sourceLabels[c._id] || c._id,
+        count:  c.count,
+        latest: c.latest,
+      })),
+      availableSites: Object.entries(SITES).map(([key, cfg]) => ({
+        key,
+        label:      cfg.label,
+        maxRecipes: cfg.maxRecipes,
+      })),
+    });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// ── POST /api/recipes/scrape-web — Trigger web recipe scraping (admin) ────────
+router.post('/scrape-web', async (req, res) => {
+  if (!process.env.CRON_SECRET || req.query.secret !== process.env.CRON_SECRET) {
+    return res.status(403).json({ message: 'Απαγορεύεται.' });
+  }
+
+  const site = req.body?.site || 'all'; // 'akis' | 'panos' | 'gymbeam' | 'all' | ...
+  res.json({ message: `🍳 Web scraping started for: ${site}` });
+
+  try {
+    const result = await scrapeWebRecipes(site);
+    console.log(`🍳 Web scrape result (${site}):`, result);
+  } catch (err) {
+    console.error('❌ Web scrape error:', err);
   }
 });
 
