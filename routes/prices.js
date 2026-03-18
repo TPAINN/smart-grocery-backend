@@ -22,28 +22,61 @@ const escapeRegex = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 //   60 — Query ξεκινάει λέξη          "γαλακτ..." αλλά δεν τελειώνει εκεί
 //   20 — Query βρίσκεται οπουδήποτε   "σοκοφρετα γαλακτος" contains "γαλα"
 //    0 — Καμία σχέση (δεν επιστρέφεται)
+//
+// Penalties:
+//    ×0.1 — Pet food όταν query δεν αφορά κατοικίδια
+//    ×0.3 — Match μόνο ως "γεύση X" / descriptor (π.χ. "τροφή γάτας με γεύση κοτόπουλου")
+
+// Λέξεις που υποδηλώνουν ότι το προϊόν είναι για κατοικίδια
+const PET_MARKERS = /(^|\s)(γατα|γατος|γατων|γατας|σκυλος|σκυλου|σκυλων|κατοικιδι|ζωοτρ|petshop|pet shop|\bcat\b|\bdog\b)/;
+
+// Αν το query δεν περιέχει pet-related λέξεις, θεωρούμε ότι ψάχνει ανθρώπινα τρόφιμα
+const isPetQuery = (q) => /(γατα|γατ |σκυλ|κατοικιδι|ζωοτρ|\bcat\b|\bdog\b)/.test(q);
+
+// Ελέγχει αν το προϊόν έχει penalty (pet food ή flavor-only descriptor)
+function isIrrelevantProduct(name, q, qEsc) {
+  if (!isPetQuery(q) && PET_MARKERS.test(name)) return true;
+  const flavorIdx = name.search(/(γευση|αρωμα|με γευση|με αρωμα)/);
+  if (flavorIdx > 0) {
+    const beforeDescriptor = name.substring(0, flavorIdx);
+    if (!new RegExp(`(^|\\s)${qEsc}`).test(beforeDescriptor)) return true;
+  }
+  return false;
+}
 
 function scoreMatch(productName, query) {
   const name  = normalize(productName);
   const q     = normalize(query);
   const qEsc  = escapeRegex(q);
 
-  // 100: Exact match
-  if (name === q) return 100;
+  // ── Βασική βαθμολογία ─────────────────────────────────────────────────────
+  let score = 0;
+  if (name === q)                                                    score = 100;
+  else if (name.startsWith(q + ' '))                                 score = 90;
+  else if (new RegExp(`(^|\\s)${qEsc}(\\s|$)`).test(name))          score = 80;
+  else if (new RegExp(`(^|\\s)${qEsc}`).test(name))                 score = 60;
+  else if (name.includes(q))                                         score = 20;
 
-  // 90: Ξεκινάει με query + κενό (π.χ. "γαλα φρεσκο")
-  if (name.startsWith(q + ' ')) return 90;
+  if (score === 0) return 0;
 
-  // 80: Query εμφανίζεται ως ολόκληρη λέξη (word boundary και στις 2 πλευρές)
-  if (new RegExp(`(^|\\s)${qEsc}(\\s|$)`).test(name)) return 80;
+  // ── Penalty 1: Pet food όταν ψάχνεις ανθρώπινα τρόφιμα ───────────────────
+  // "Τροφή σκύλου κοτόπουλο" → query "κοτόπουλο" → score × 0.1
+  if (!isPetQuery(q) && PET_MARKERS.test(name)) {
+    return Math.round(score * 0.1); // π.χ. 60 → 6
+  }
 
-  // 60: Query ξεκινάει κάποια λέξη (π.χ. "κοτοπ" → "κοτοπουλο")
-  if (new RegExp(`(^|\\s)${qEsc}`).test(name)) return 60;
+  // ── Penalty 2: Query εμφανίζεται μόνο ως γεύση/άρωμα ─────────────────────
+  // "Τροφή γάτας με γεύση κοτόπουλου" → query "κοτόπουλο" → score × 0.3
+  const flavorIdx = name.search(/(γευση|αρωμα|με γευση|με αρωμα)/);
+  if (flavorIdx > 0) {
+    const beforeDescriptor = name.substring(0, flavorIdx);
+    const queryInMainPart  = new RegExp(`(^|\\s)${qEsc}`).test(beforeDescriptor);
+    if (!queryInMainPart) {
+      return Math.round(score * 0.3); // π.χ. 60 → 18
+    }
+  }
 
-  // 20: Query εμφανίζεται οπουδήποτε ως substring (χαμηλή προτεραιότητα)
-  if (name.includes(q)) return 20;
-
-  return 0;
+  return score;
 }
 
 // Για multi-word queries (π.χ. "φρεσκο γαλα"):
@@ -58,9 +91,19 @@ function scoreMultiWord(productName, terms) {
     totalScore += s;
   }
 
-  // Bonus: αν η σειρά των λέξεων ταιριάζει
-  const queryStr = terms.map(escapeRegex).join('.*');
-  if (new RegExp(queryStr).test(name)) totalScore += 10;
+  // Bonuses μόνο για σχετικά προϊόντα (όχι pet food / flavor-only descriptors)
+  const q = terms[0];
+  const qEsc = escapeRegex(q);
+  if (!isIrrelevantProduct(name, q, qEsc)) {
+    // Bonus: αν η σειρά των λέξεων ταιριάζει
+    const queryStr = terms.map(escapeRegex).join('.*');
+    if (new RegExp(queryStr).test(name)) totalScore += 10;
+
+    // Bonus: αν το όνομα ΑΡΧΙΖΕΙ με την πρώτη λέξη του query
+    // "Κοτόπουλο φρέσκο" για query "κοτόπουλο" → +20
+    const firstTermEsc = escapeRegex(normalize(terms[0]));
+    if (new RegExp(`^${firstTermEsc}`).test(name)) totalScore += 20;
+  }
 
   return totalScore;
 }
@@ -116,7 +159,7 @@ router.get('/search', async (req, res) => {
         ...p,
         _score: scoreMultiWord(p.name, terms),
       }))
-      .filter(p => p._score > 0)
+      .filter(p => p._score > 10)
       .sort((a, b) => {
         // Πρώτα score (φθίνουσα), μετά τιμή (αύξουσα)
         if (b._score !== a._score) return b._score - a._score;
