@@ -67,7 +67,6 @@ const pricesRoutes    = require('./routes/prices');
 const listRoutes      = require('./routes/lists');
 const recipeRoutes    = require('./routes/recipes');
 const chatRoutes      = require('./routes/chat');
-const splitBillRoutes = require('./routes/splitbill');
 const mealPlanRoutes  = require('./routes/mealplan');
 const favoritesRoutes = require('./routes/favorites');
 
@@ -79,7 +78,6 @@ app.use('/api/prices',    pricesRoutes);
 app.use('/api/lists',     listRoutes);
 app.use('/api/recipes',   recipeRoutes);
 app.use('/api/chat',      chatRoutes);
-app.use('/api/split',     splitBillRoutes);
 app.use('/api/meal-plan', mealPlanRoutes);
 app.use('/api/favorites', favoritesRoutes);
 
@@ -169,15 +167,6 @@ io.on('connection', (socket) => {
     // Also make the sender join B's cart room on their socket
     socket.join(data.targetShareKey);
     console.log(`🤝 Friend notification: ${data.from.shareKey} → ${data.targetShareKey}`);
-  });
-
-  // ── Split Bill events ─────────────────────────────────────────────────────
-  socket.on('split_join', (sessionId) => {
-    if (sessionId) socket.join(`split_${sessionId}`);
-  });
-
-  socket.on('split_consent_update', (data) => {
-    if (data?.sessionId) io.to(`split_${data.sessionId}`).emit('split_consent_update', data);
   });
 
   socket.on('disconnect', () => {
