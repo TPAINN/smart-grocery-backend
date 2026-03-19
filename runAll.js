@@ -14,7 +14,7 @@ const { scrapeWebRecipes }  = require('./services/webRecipeScraper');
 
     const dbURI = process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/smart_grocery';
     await mongoose.connect(dbURI);
-    console.log("📦 [1/5] Συνδέθηκε στη MongoDB (Atlas) επιτυχώς.");
+    console.log("📦 [1/6] Συνδέθηκε στη MongoDB (Atlas) επιτυχώς.");
 
     // Βάζουμε πρώτες τις συνταγές γιατί είναι ελαφριές και γρήγορες
     console.log("\n👨‍🍳 [2/6] Εκκίνηση Multi-Chef Recipe Scraper (Spoonacular)...");
