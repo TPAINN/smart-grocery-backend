@@ -1,9 +1,12 @@
 // routes/favorites.js — Recipe favorites API (persistent, offline-friendly)
 const express  = require('express');
+const mongoose = require('mongoose');
 const router   = express.Router();
 const auth     = require('../middleware/authMiddleware');
 const Favorite = require('../models/Favorite');
 const Recipe   = require('../models/Recipe');
+
+const isValidId = (id) => mongoose.Types.ObjectId.isValid(id);
 
 // ── GET /api/favorites — Get all user's favorites (with full recipe data) ────
 router.get('/', auth, async (req, res) => {
@@ -14,8 +17,9 @@ router.get('/', auth, async (req, res) => {
 
     res.json({
       favorites: favorites.map(f => ({
-        _id:      f.recipeId,
-        addedAt:  f.addedAt,
+        _id:        f.recipeId,
+        favoriteId: f._id,
+        addedAt:    f.addedAt,
         ...f.recipe,
       })),
     });
@@ -45,6 +49,9 @@ router.get('/ids', auth, async (req, res) => {
 router.post('/:recipeId', auth, async (req, res) => {
   try {
     const { recipeId } = req.params;
+    if (!isValidId(recipeId)) {
+      return res.status(400).json({ message: 'Μη έγκυρο recipeId' });
+    }
 
     // Check if already favorited
     const existing = await Favorite.findOne({ userId: req.user.id, recipeId });
@@ -99,7 +106,11 @@ router.post('/:recipeId', auth, async (req, res) => {
 // ── DELETE /api/favorites/:recipeId — Remove from favorites ─────────────────
 router.delete('/:recipeId', auth, async (req, res) => {
   try {
-    await Favorite.deleteOne({ userId: req.user.id, recipeId: req.params.recipeId });
+    const { recipeId } = req.params;
+    if (!isValidId(recipeId)) {
+      return res.status(400).json({ message: 'Μη έγκυρο recipeId' });
+    }
+    await Favorite.deleteOne({ userId: req.user.id, recipeId });
     res.json({ message: 'Αφαιρέθηκε από τα αγαπημένα', favorited: false });
   } catch (err) {
     console.error('❌ DELETE /api/favorites error:', err.message);

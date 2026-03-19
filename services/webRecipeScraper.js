@@ -382,9 +382,12 @@ async function getWpLinks(page, siteKey, max) {
 
             const found = await page.$$eval(
                 cfg.linkSelector,
-                (els, filter) => [...new Set(els.map(el => el.href))].filter(h => {
-                    try { return new Function('h', `return ${filter}`)(h); } catch { return false; }
-                }),
+                (els, filterSrc) => {
+                    const fn = new Function('h', `return (${filterSrc})(h);`);
+                    return [...new Set(els.map(el => el.href))].filter(h => {
+                        try { return fn(h); } catch { return false; }
+                    });
+                },
                 cfg.linkFilter.toString()
             );
             found.forEach(l => links.add(l));
