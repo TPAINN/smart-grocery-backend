@@ -10,6 +10,17 @@ const Recipe = require('../models/Recipe');
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
+/** Strip HTML tags, decode entities, collapse whitespace */
+function cleanStr(raw) {
+    if (!raw || typeof raw !== 'string') return '';
+    return raw
+        .replace(/<[^>]*>/g, ' ')
+        .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+        .replace(/&nbsp;/g, ' ').replace(/&quot;/g, '"')
+        .replace(/&#\d+;/g, '').replace(/&[a-z]+;/g, '')
+        .replace(/\s{2,}/g, ' ').trim();
+}
+
 /** ISO 8601 duration → minutes (e.g. "PT1H30M" → 90) */
 function parseDuration(iso) {
     if (!iso) return null;
@@ -537,8 +548,8 @@ async function scrapeWebRecipes(siteKey = 'all') {
                     const tags       = buildTags({ ...raw, time });
 
                     await Recipe.create({
-                        title:        raw.title,
-                        description:  raw.description || '',
+                        title:        cleanStr(raw.title),
+                        description:  cleanStr(raw.description || ''),
                         image:        raw.image       || '',
                         servings:     raw.servings    || 4,
                         time,
@@ -549,8 +560,8 @@ async function scrapeWebRecipes(siteKey = 'all') {
                         fat:          raw.fat      || null,
                         fiber:        raw.fiber    || null,
                         isHealthy:    (raw.calories || 999) < 600,
-                        ingredients:  raw.ingredients  || [],
-                        instructions: raw.instructions || [],
+                        ingredients:  (raw.ingredients  || []).map(cleanStr).filter(s => s.length > 1),
+                        instructions: (raw.instructions || []).map(s => cleanStr(s).replace(/^\d+[\.\)]\s*/, '')).filter(s => s.length > 5),
                         tags,
                         cuisine:      raw.cuisine || 'Ελληνική',
                         category,

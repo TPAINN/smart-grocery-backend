@@ -13,6 +13,17 @@ const DEEPL_BASE       = 'https://api-free.deepl.com/v2/translate';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
+/** Strip HTML tags, decode common entities, collapse whitespace */
+function cleanText(raw) {
+  if (!raw || typeof raw !== 'string') return '';
+  return raw
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+    .replace(/&nbsp;/g, ' ').replace(/&quot;/g, '"')
+    .replace(/&#\d+;/g, '').replace(/&[a-z]+;/g, '')
+    .replace(/\s{2,}/g, ' ').trim();
+}
+
 /**
  * Translate an array of texts from EN→EL via DeepL Free API
  * Batches up to 50 texts per call to stay efficient
@@ -274,9 +285,9 @@ async function populateRecipes(options = {}) {
 
         // ── Step 4: Save to MongoDB ────────────────────────────────────────
         const recipe = new Recipe({
-          title:        titleEl,
+          title:        cleanText(titleEl),
           titleEn:      r.title,
-          description:  descriptionEl,
+          description:  cleanText(descriptionEl),
           image:        r.image || '',
           servings:     r.servings || 4,
           time:         r.readyInMinutes || 30,
@@ -288,8 +299,8 @@ async function populateRecipes(options = {}) {
           fiber:        nutrients['fiber'] || null,
           sugar:        nutrients['sugar'] || null,
           isHealthy:    r.veryHealthy || r.healthScore > 50,
-          ingredients:  ingredientsEl,
-          instructions: instructionsEl,
+          ingredients:  ingredientsEl.map(cleanText).filter(s => s.length > 1),
+          instructions: instructionsEl.map(s => cleanText(s).replace(/^\d+[\.\)]\s*/, '')).filter(s => s.length > 5),
           tags:         buildTags(r),
           cuisine:      mapCuisine(r.cuisines || []),
           category:     mapCategory(r.dishTypes || [], r.title),
