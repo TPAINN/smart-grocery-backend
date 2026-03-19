@@ -132,26 +132,33 @@ io.on('connection', (socket) => {
   });
 
   // ── Send message ──────────────────────────────────────────────────────────
-  // data = { shareKey, senderName, text, friendShareKeys[] }
-  // We save under sender's shareKey AND broadcast to ALL friend rooms
+  // data = { shareKey, senderName, text, friendShareKeys[], targetShareKey? }
+  // If targetShareKey is set → private DM to one friend only
+  // Otherwise → broadcast to all friend rooms (group chat)
   socket.on('send_message', async (data) => {
     try {
       const newMessage = await Message.create({
-        shareKey:   data.shareKey,
-        senderName: data.senderName,
-        text:       data.text,
+        shareKey:       data.shareKey,
+        senderName:     data.senderName,
+        text:           data.text,
+        targetShareKey: data.targetShareKey || null,
       });
 
-      // Broadcast to everyone in sender's room (so friends who joined it see it)
-      socket.to(data.shareKey).emit('receive_message', newMessage);
-
-      // Also broadcast to each friend's room (bidirectional delivery guarantee)
-      if (Array.isArray(data.friendShareKeys)) {
-        data.friendShareKeys.forEach(fKey => {
-          if (fKey !== data.shareKey) {
-            socket.to(fKey).emit('receive_message', newMessage);
-          }
-        });
+      if (data.targetShareKey) {
+        // ── Private DM: send only to the target friend's room ──────────────
+        socket.to(data.targetShareKey).emit('receive_message', newMessage);
+        // Also echo back to sender's other sessions
+        socket.to(data.shareKey).emit('receive_message', newMessage);
+      } else {
+        // ── Group message: broadcast to all friend rooms ────────────────────
+        socket.to(data.shareKey).emit('receive_message', newMessage);
+        if (Array.isArray(data.friendShareKeys)) {
+          data.friendShareKeys.forEach(fKey => {
+            if (fKey !== data.shareKey) {
+              socket.to(fKey).emit('receive_message', newMessage);
+            }
+          });
+        }
       }
     } catch (err) {
       console.error('❌ Message save error:', err);

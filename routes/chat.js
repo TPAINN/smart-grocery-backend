@@ -13,7 +13,17 @@ router.get('/group', async (req, res) => {
     const keys = keysParam.split(',').map(k => k.trim().toUpperCase()).filter(Boolean);
     if (keys.length === 0) return res.json([]);
 
-    const messages = await Message.find({ shareKey: { $in: keys } })
+    // Fetch group messages (no targetShareKey) AND DMs where user is sender or recipient
+    const messages = await Message.find({
+      $or: [
+        // Group messages from any participant
+        { shareKey: { $in: keys }, targetShareKey: null },
+        // DMs where current user sent
+        { shareKey: { $in: keys }, targetShareKey: { $in: keys } },
+        // DMs where current user is the target
+        { targetShareKey: { $in: keys }, shareKey: { $in: keys } },
+      ]
+    })
       .sort({ createdAt: 1 })
       .limit(200)
       .lean();
