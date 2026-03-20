@@ -27,8 +27,13 @@ const userSchema = new mongoose.Schema({
     addedAt:   { type: Date, default: Date.now },
   }],
 
-  isPremium: { type: Boolean, default: false },
-  createdAt: { type: Date,    default: Date.now },
+  isPremium:   { type: Boolean, default: false },
+  // 🎁 Free trial: 14 days from registration
+  trialEndsAt: {
+    type:    Date,
+    default: () => new Date(Date.now() + 14 * 24 * 60 * 60 * 1000),
+  },
+  createdAt: { type: Date, default: Date.now },
 });
 
 // Index for fast friend lookup
