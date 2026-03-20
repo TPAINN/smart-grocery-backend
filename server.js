@@ -1,4 +1,4 @@
-// server.js — Smart Grocery Hub Backend (Full Production)
+// server.js — Καλαθάκι Backend (Full Production)
 require('dotenv').config();
 const dns = require('node:dns/promises');
 dns.setServers(['1.1.1.1', '1.0.0.1', '8.8.8.8']);
