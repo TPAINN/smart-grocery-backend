@@ -12,18 +12,37 @@ let _io = null;
 router.setIO = (io) => { _io = io; };
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
-const safeUser = (u) => ({
-  id:        u._id,
-  name:      u.name,
-  email:     u.email,
-  isPremium: u.isPremium,
-  shareKey:  u.shareKey,
-  friends:   (u.friends || []).map(f => ({
-    shareKey: f.shareKey,
-    username: f.username,
-    addedAt:  f.addedAt,
-  })),
-});
+
+// Computes effective premium status:
+//   isPremium = true  → manual grant from MongoDB (permanent)
+//   trialEndsAt > now → 14-day free trial (temporary)
+const safeUser = (u) => {
+  const now        = new Date();
+  const trialActive = u.trialEndsAt && u.trialEndsAt > now;
+  const effectivePremium = u.isPremium || trialActive;
+
+  // Days left in trial (0 if trial expired or permanently premium)
+  const trialDaysLeft = trialActive && !u.isPremium
+    ? Math.ceil((u.trialEndsAt - now) / (1000 * 60 * 60 * 24))
+    : 0;
+
+  return {
+    id:           u._id,
+    name:         u.name,
+    email:        u.email,
+    isPremium:    effectivePremium,   // true if permanent OR trial active
+    isRealPremium: u.isPremium,       // true only if manually granted / Stripe paid
+    isOnTrial:    trialActive && !u.isPremium,
+    trialDaysLeft,
+    trialEndsAt:  u.trialEndsAt,
+    shareKey:     u.shareKey,
+    friends: (u.friends || []).map(f => ({
+      shareKey: f.shareKey,
+      username: f.username,
+      addedAt:  f.addedAt,
+    })),
+  };
+};
 
 const isRealEmailDomain = async (email) => {
   try {
@@ -231,6 +250,24 @@ router.get('/me', authMiddleware, async (req, res) => {
     const user = await User.findById(req.userId).select('-password');
     if (!user) return res.status(404).json({ message: 'Χρήστης δεν βρέθηκε.' });
     res.json({ user: safeUser(user) });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// ── 9. REFRESH PREMIUM STATUS ─────────────────────────────────────────────────
+// Called by the frontend on app load to get a fresh isPremium / trialDaysLeft
+// from the DB (bypasses the cached JWT value)
+router.get('/refresh-premium', authMiddleware, async (req, res) => {
+  try {
+    const user = await User.findById(req.userId).select('-password');
+    if (!user) return res.status(404).json({ message: 'Χρήστης δεν βρέθηκε.' });
+
+    // Issue a fresh token so subsequent calls also carry correct isPremium
+    const safe  = safeUser(user);
+    const token = jwt.sign({ id: user._id, isPremium: safe.isPremium }, JWT_SECRET, { expiresIn: '30d' });
+
+    res.json({ token, user: safe });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
