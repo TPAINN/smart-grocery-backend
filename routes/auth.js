@@ -3,6 +3,7 @@ const express  = require('express');
 const bcrypt   = require('bcryptjs');
 const jwt      = require('jsonwebtoken');
 const dns      = require('dns').promises;
+const rateLimit = require('express-rate-limit');
 const User     = require('../models/User');
 const { JWT_SECRET } = require('../config/jwt');
 
@@ -10,6 +11,16 @@ const router = express.Router();
 
 let _io = null;
 router.setIO = (io) => { _io = io; };
+
+// ── Strict Rate Limiter (μόνο για register & login) ───────────────────────────
+// 10 προσπάθειες ανά IP / 15 λεπτά — ανά πραγματική IP (trust proxy στο server.js)
+const strictLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { message: 'Πολλές προσπάθειες. Δοκίμασε ξανά σε 15 λεπτά.' },
+});
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -70,7 +81,7 @@ const authMiddleware = (req, res, next) => {
 };
 
 // ── 1. REGISTER ───────────────────────────────────────────────────────────────
-router.post('/register', async (req, res) => {
+router.post('/register', strictLimiter, async (req, res) => {
   try {
     const { name, email, password } = req.body;
     if (!name?.trim() || !email?.trim() || !password)
@@ -98,7 +109,7 @@ router.post('/register', async (req, res) => {
 });
 
 // ── 2. LOGIN ──────────────────────────────────────────────────────────────────
-router.post('/login', async (req, res) => {
+router.post('/login', strictLimiter, async (req, res) => {
   try {
     const { email, password } = req.body;
     const user = await User.findOne({ email: email?.toLowerCase().trim() });

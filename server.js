@@ -21,6 +21,10 @@ const { populateRecipes } = require('./services/recipeScraper');
 const app    = express();
 const server = http.createServer(app);
 
+// ── Trust Proxy (ΚΡΙΣΙΜΟ για Render / nginx) ──────────────────────────────────
+// Χωρίς αυτό, το rate-limit βλέπει την IP του proxy σαν IP ΟΛΩΝ των χρηστών
+app.set('trust proxy', 1);
+
 // ── CORS ──────────────────────────────────────────────────────────────────────
 const allowedOrigins = (process.env.ALLOWED_ORIGINS || 'http://localhost:5173').split(',');
 
@@ -39,9 +43,11 @@ app.use(cors({
 app.use(express.json());
 
 // ── Rate Limiting ─────────────────────────────────────────────────────────────
-const authLimiter = rateLimit({
+
+// Για /me, /friends, /refresh-premium, /by-key, /search κτλ — χαλαρό
+const generalAuthLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 30,
+  max: 200,
   standardHeaders: true,
   legacyHeaders: false,
   message: { message: 'Πολλές προσπάθειες. Δοκίμασε ξανά σε 15 λεπτά.' },
@@ -73,7 +79,8 @@ const favoritesRoutes = require('./routes/favorites');
 // Wire io to auth so notify-friend can emit socket events
 if (typeof authRoutes.setIO === 'function') authRoutes.setIO(io);
 
-app.use('/api/auth',      authLimiter, authRoutes);
+// Το strictLimiter για register/login ορίζεται μέσα στο routes/auth.js
+app.use('/api/auth',      generalAuthLimiter, authRoutes);
 app.use('/api/prices',    pricesRoutes);
 app.use('/api/lists',     listRoutes);
 app.use('/api/recipes',   recipeRoutes);
