@@ -302,26 +302,50 @@ async function parseGymBeamRecipe(page, url) {
         }
 
         if (ingIdx > -1) {
+            // FIX: clean execText extraction (old code had undefined?.length bug)
             let execIdx = fullText.length;
+            let execMarkerLen = 0;
             for (const ek of EXEC_MARKERS) {
                 const ei = fullText.indexOf(ek, ingIdx);
                 if (ei > -1 && ei < execIdx) {
                     execIdx = ei;
-                    execText = fullText.substring(ei + EXEC_MARKERS.find(m => fullText.startsWith(m, ei))?.length + 1 || ei + 10);
+                    execMarkerLen = ek.length;
                 }
             }
-            ingText = fullText.substring(ingIdx, execIdx);
+            ingText  = fullText.substring(ingIdx, execIdx);
+            execText = execIdx < fullText.length
+                ? fullText.substring(execIdx + execMarkerLen).trim()
+                : '';
         }
+
+        // FIX: Filter ALL-CAPS lines — these are GymBeam section headers, not ingredients
+        // e.g. "ΕΝΙΣΧΥΤΙΚΑ ΓΕΥΣΗΣ ΚΑΙ ΓΛΥΚΑΝΤΙΚΑ", "ΒΑΣΙΚΑ ΥΛΙΚΑ", "ΓΙΑ ΤΗΝ ΕΠΙΚΑΛΥΨΗ"
+        const isAllCapsLine = (s) => {
+            const letters = s.replace(/[^α-ωΑ-Ωa-zA-ZάέήίόύώΆΈΉΊΌΎΏ]/g, '');
+            return letters.length > 0 && letters === letters.toUpperCase();
+        };
 
         const ingredients = ingText.split('\n')
             .map(s => s.trim())
-            .filter(s => s.length > 1 && s.length < 100 && !s.includes('€') && !/^(GymBeam|BIO [A-Z]|Από \d)/.test(s));
+            .filter(s =>
+                s.length > 1 &&
+                s.length < 100 &&
+                !s.includes('€') &&
+                !/^(GymBeam|BIO [A-Z]|Από \d)/.test(s) &&
+                !isAllCapsLine(s)   // ← removes section headers
+            );
 
-        // Split instructions at sentence boundaries
+        // FIX: Remove "FITNESS ΣΥΝΤΑΓΗ :" type labels from instruction lines
+        // and filter ALL-CAPS-only lines (GymBeam uses them as section dividers in steps too)
         const instructions = (execText || fullText.split('\n\n').slice(1).join('\n'))
             .split(/(?<=[.!?])\s+|\n/)
             .map(s => s.trim())
-            .filter(s => s.length > 25);
+            // Strip fitness label prefix if present at start of a step
+            .map(s => s.replace(/^(FITNESS\s+)?ΣΥΝΤΑΓ[ΗΉ]\s*(FITNESS\s*)?:\s*/i, '').trim())
+            .filter(s =>
+                s.length > 25 &&
+                !isAllCapsLine(s)   // ← removes section dividers in steps
+            );
 
         // ── Parse macros from table ─────────────────────────────────────────
         const macroMap = {};
