@@ -1,5 +1,5 @@
 // routes/mealplan.js — Premium AI Meal Planner
-// Uses aiService.js → Gemini 1.5 Flash (primary) + Groq (fallback)
+// Uses aiService.js → Gemini 2.0 Flash (primary) + Groq (fallback) + Bytez (emergency)
 const express = require('express');
 const router  = express.Router();
 const Product = require('../models/Product');
@@ -243,7 +243,7 @@ router.post('/', async (req, res) => {
     macroRatios={ protein:30, carbs:40, fat:30 },
   } = req.body;
 
-  if (!process.env.GEMINI_API_KEY && !process.env.GROQ_API_KEY)
+  if (!process.env.GEMINI_API_KEY && !process.env.GROQ_API_KEY && !process.env.BYTEZ_API_KEY)
     return res.status(500).json({ message: 'Δεν βρέθηκε κανένα AI API key στο .env' });
 
   // Normalise macroRatios so they always sum to 100
@@ -380,11 +380,11 @@ router.post('/', async (req, res) => {
       shoppingList,
       macroRatioTarget: normMR,
       stats: {
-        totalIngredients: allIngredients.size,
+        totalIngredients: ingredientMap.size,
         foundInDB: found,
-        notFound: allIngredients.size - found,
+        notFound: ingredientMap.size - found,
         estimatedCost: Math.round(cost*100)/100,
-        coveragePercent: Math.round(found/allIngredients.size*100),
+        coveragePercent: Math.round(found/ingredientMap.size*100),
       },
     });
   } catch(err) {

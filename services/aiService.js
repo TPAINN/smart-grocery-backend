@@ -1,6 +1,7 @@
 // services/aiService.js
-// Primary:  Google Gemini 1.5 Flash  (free: 1,500 req/day, 15 RPM)
-// Fallback: Groq llama-3.3-70b       (free: 14,400 req/day, 30 RPM)
+// Priority 1: Google Gemini 2.0 Flash  (free: 1,500 req/day, 15 RPM, 1M context)
+// Priority 2: Groq llama-3.3-70b       (free: 14,400 req/day, 30 RPM, 128K context)
+// Priority 3: Bytez Qwen3-4B           (free tier, 32K context — emergency fallback)
 // Auto-switches if one provider fails or rate-limits
 
 const { GoogleGenerativeAI } = require('@google/generative-ai');
@@ -10,9 +11,10 @@ const Groq = require('groq-sdk');
 const rateTracker = {
   gemini: { count: 0, resetAt: Date.now() + 60_000 },
   groq:   { count: 0, resetAt: Date.now() + 60_000 },
+  bytez:  { count: 0, resetAt: Date.now() + 60_000 },
 };
 
-const LIMITS = { gemini: 14, groq: 28 }; // slightly under hard limits for safety
+const LIMITS = { gemini: 14, groq: 28, bytez: 50 };
 
 function canUse(provider) {
   const t = rateTracker[provider];
@@ -21,24 +23,23 @@ function canUse(provider) {
 }
 function tick(provider) { rateTracker[provider].count++; }
 
-// ── Gemini call ────────────────────────────────────────────────────────────────
+// ── Gemini call (upgraded to 2.0 Flash) ──────────────────────────────────────
 async function callGemini(systemPrompt, userPrompt) {
   const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
   const model = genAI.getGenerativeModel({
-    model: 'gemini-1.5-flash',
+    model: 'gemini-2.0-flash',
     systemInstruction: systemPrompt,
     generationConfig: {
       responseMimeType: 'application/json',
-      temperature: 0.5,
-      maxOutputTokens: 8192,
+      temperature: 0.4,
+      maxOutputTokens: 16384,
     },
   });
 
   tick('gemini');
   const result = await model.generateContent(userPrompt);
   const raw = result.response.text();
-  try { return JSON.parse(raw.replace(/```json|```/g, '').trim()); }
-  catch { const m = raw.match(/\{[\s\S]*\}/); if (m) return JSON.parse(m[0]); throw new Error('Gemini JSON parse failed'); }
+  return parseJSON(raw, 'Gemini');
 }
 
 // ── Groq call ──────────────────────────────────────────────────────────────────
@@ -51,42 +52,80 @@ async function callGroq(systemPrompt, userPrompt) {
       { role: 'system', content: systemPrompt },
       { role: 'user',   content: userPrompt },
     ],
-    temperature: 0.5,
-    max_tokens: 8192,
+    temperature: 0.4,
+    max_tokens: 16384,
     response_format: { type: 'json_object' },
   });
   const raw = completion.choices[0]?.message?.content || '{}';
-  try { return JSON.parse(raw.replace(/```json|```/g, '').trim()); }
-  catch { const m = raw.match(/\{[\s\S]*\}/); if (m) return JSON.parse(m[0]); throw new Error('Groq JSON parse failed'); }
+  return parseJSON(raw, 'Groq');
+}
+
+// ── Bytez call (Qwen3-4B — emergency fallback) ──────────────────────────────
+async function callBytez(systemPrompt, userPrompt) {
+  const apiKey = process.env.BYTEZ_API_KEY;
+  if (!apiKey) throw new Error('BYTEZ_API_KEY not set');
+
+  tick('bytez');
+  const res = await fetch('https://api.bytez.com/models/v2/Qwen/Qwen3-4B', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Key ${apiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      messages: [
+        { role: 'system', content: systemPrompt + '\n\nIMPORTANT: Respond ONLY with valid JSON. No markdown, no explanation.' },
+        { role: 'user',   content: userPrompt },
+      ],
+      stream: false,
+      params: { temperature: 0.4, max_length: 8192 },
+    }),
+  });
+
+  if (!res.ok) throw new Error(`Bytez HTTP ${res.status}`);
+  const data = await res.json();
+  if (data.error) throw new Error(`Bytez error: ${data.error}`);
+  const raw = data.output?.content || '';
+  return parseJSON(raw, 'Bytez');
+}
+
+// ── Robust JSON parser ──────────────────────────────────────────────────────
+function parseJSON(raw, provider) {
+  const cleaned = raw.replace(/```json|```/g, '').trim();
+  // Try direct parse
+  try { return JSON.parse(cleaned); } catch {}
+  // Try extracting largest JSON object
+  const match = cleaned.match(/\{[\s\S]*\}/);
+  if (match) {
+    try { return JSON.parse(match[0]); } catch {}
+  }
+  throw new Error(`${provider} JSON parse failed`);
 }
 
 // ── Main exported function — auto-selects provider ────────────────────────────
 async function callAI(systemPrompt, userPrompt) {
-  const hasGemini = !!process.env.GEMINI_API_KEY;
-  const hasGroq   = !!process.env.GROQ_API_KEY;
+  const providers = [
+    { name: 'Gemini 2.0 Flash',    key: 'GEMINI_API_KEY', tracker: 'gemini', fn: callGemini },
+    { name: 'Groq llama-3.3-70b',  key: 'GROQ_API_KEY',   tracker: 'groq',   fn: callGroq },
+    { name: 'Bytez Qwen3-4B',      key: 'BYTEZ_API_KEY',   tracker: 'bytez',  fn: callBytez },
+  ];
 
-  // Try Gemini first
-  if (hasGemini && canUse('gemini')) {
+  const errors = [];
+
+  for (const p of providers) {
+    if (!process.env[p.key]) continue;
+    if (!canUse(p.tracker)) { errors.push(`${p.name}: rate-limited`); continue; }
+
     try {
-      console.log('🤖 [AI] Provider: Gemini 1.5 Flash');
-      return await callGemini(systemPrompt, userPrompt);
+      console.log(`🤖 [AI] Provider: ${p.name}`);
+      return await p.fn(systemPrompt, userPrompt);
     } catch (err) {
-      console.warn(`⚠️ [AI] Gemini failed: ${err.message} → switching to Groq`);
+      console.warn(`⚠️ [AI] ${p.name} failed: ${err.message}`);
+      errors.push(`${p.name}: ${err.message}`);
     }
   }
 
-  // Fallback to Groq
-  if (hasGroq && canUse('groq')) {
-    try {
-      console.log('🤖 [AI] Provider: Groq llama-3.3-70b (fallback)');
-      return await callGroq(systemPrompt, userPrompt);
-    } catch (err) {
-      console.error(`❌ [AI] Groq also failed: ${err.message}`);
-      throw err;
-    }
-  }
-
-  throw new Error('Κανένα AI provider δεν είναι διαθέσιμο αυτή τη στιγμή. Δοκίμασε ξανά σε λίγο.');
+  throw new Error(`Κανένα AI provider δεν είναι διαθέσιμο. ${errors.join(' | ')}`);
 }
 
 module.exports = { callAI };
