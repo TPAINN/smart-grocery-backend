@@ -7,11 +7,11 @@ const authMiddleware = require('../middleware/authMiddleware');
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
-// ── Price configuration (in EUR cents) ──────────────────────────────────────
+// ── Stripe Product Catalog IDs ───────────────────────────────────────────────
 const PRICES = {
-  monthly:  { amount:  99, interval: 'month', label: 'Premium Μηνιαία'  },
-  yearly:   { amount: 799, interval: 'year',  label: 'Premium Ετήσια'   },
-  lifetime: { amount: 1499, interval: null,   label: 'Premium Lifetime' },
+  monthly:  { productId: 'prod_UDFsH2BMYliAIb', amount:  99, interval: 'month', label: 'Premium Μηνιαία'  },
+  yearly:   { productId: 'prod_UDFt86PePliF2y', amount: 799, interval: 'year',  label: 'Premium Ετήσια'   },
+  lifetime: { productId: 'prod_UDFw0SbKhJIF80', amount: 1499, interval: null,   label: 'Premium Lifetime' },
 };
 
 // ── 1. CREATE CHECKOUT SESSION ──────────────────────────────────────────────
@@ -49,7 +49,7 @@ router.post('/create-checkout-session', authMiddleware, async (req, res) => {
       line_items: [{
         price_data: {
           currency: 'eur',
-          product_data: { name: priceConfig.label, description: 'Καλαθάκι — Smart Grocery Hub Premium' },
+          product: priceConfig.productId,
           unit_amount: priceConfig.amount,
           ...(priceConfig.interval ? { recurring: { interval: priceConfig.interval } } : {}),
         },
@@ -191,9 +191,9 @@ router.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
 // ── 5. GET PRICES (for frontend display) ────────────────────────────────────
 router.get('/prices', (req, res) => {
   res.json({
-    monthly:  { amount: PRICES.monthly.amount,  label: PRICES.monthly.label,  price: '1,99€/μήνα' },
-    yearly:   { amount: PRICES.yearly.amount,    label: PRICES.yearly.label,   price: '14,99€/χρόνο', saving: 'Εξοικονόμηση 9€' },
-    lifetime: { amount: PRICES.lifetime.amount,  label: PRICES.lifetime.label, price: '29,99€ μία φορά', saving: 'Για πάντα!' },
+    monthly:  { amount: PRICES.monthly.amount,  productId: PRICES.monthly.productId,  label: PRICES.monthly.label,  price: '0,99€/μήνα' },
+    yearly:   { amount: PRICES.yearly.amount,   productId: PRICES.yearly.productId,   label: PRICES.yearly.label,   price: '7,99€/χρόνο', saving: 'Εξοικονόμηση ~4€' },
+    lifetime: { amount: PRICES.lifetime.amount, productId: PRICES.lifetime.productId, label: PRICES.lifetime.label, price: '14,99€ μία φορά', saving: 'Για πάντα!' },
   });
 });
 
