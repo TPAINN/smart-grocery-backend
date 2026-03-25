@@ -10,7 +10,8 @@ function auth(req, res, next) {
 
   try {
     const decoded = jwt.verify(token.replace('Bearer ', ''), JWT_SECRET);
-    req.user = decoded;
+    req.user   = decoded;
+    req.userId = decoded.id || decoded._id || decoded.userId; // stripe.js + auth.js use req.userId
     next();
   } catch (e) {
     // 🔴 FIX: 401 παντού (όχι 400)
