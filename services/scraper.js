@@ -28,6 +28,15 @@ const GALAXIAS_URLS =[
 const MARKET_IN_URLS =[
     "https://www.market-in.gr/el-gr/manabikh", "https://www.market-in.gr/el-gr/kreopoleio-1", "https://www.market-in.gr/el-gr/tyrokomika-allantika", "https://www.market-in.gr/el-gr/trofima", "https://www.market-in.gr/el-gr/kava", "https://www.market-in.gr/el-gr/vrefika", "https://www.market-in.gr/el-gr/galaktokomika-proionta-psugeiou", "https://www.market-in.gr/el-gr/katepsugmena", "https://www.market-in.gr/el-gr/prosopikh-frontida", "https://www.market-in.gr/el-gr/kathariothta", "https://www.market-in.gr/el-gr/ola-gia-to-spiti", "https://www.market-in.gr/el-gr/katoikidia"
 ];
+const LIDL_URLS = [
+    "https://www.lidl-hellas.gr/c/fagito-poto/s10068374",
+    "https://www.lidl-hellas.gr/c/koyzina-noikokyrio/s10068166",
+    "https://www.lidl-hellas.gr/c/ergaleia-eidi-kipoy/s10068222",
+    "https://www.lidl-hellas.gr/c/athlitiki-endysi-anapsychi/s10068226",
+    "https://www.lidl-hellas.gr/c/oikiakos-exoplismos/s10068371",
+    "https://www.lidl-hellas.gr/c/moda-axesoyar/s10068373",
+    "https://www.lidl-hellas.gr/c/vrefika-paidika-eidi/s10068225",
+];
 
 const STORE_CONFIGS = {
     'ΑΒ Βασιλόπουλος': { 
@@ -48,7 +57,16 @@ const STORE_CONFIGS = {
     'MyMarket': { card: 'article, .product, .product-item, .product-card, .products-listing > div, div.relative.flex.flex-col', name: '.line-clamp-2', oldPrice: '.diagonal-line', promo: '.product-note-tag', nextBtn: 'a[rel="next"],[data-mkey="next"]' },
     'Μασούτης': { card: '.product-item, .col-product', name: '.productTitle', price: '.price', promo: '.pDscntPercent', loader: '.lds-spinner' },
     'Market In': { card: '.product-grid-box, .product', name: '.product-ttl', price: '.new-price', oldPrice: '.old-price', promo: '.disc-value', nextBtn: 'span.material-icons, a.next' },
-    'Γαλαξίας': { card: '.product-card, .col', name: '.text-black-i, h2', price: 'span[style*="rgb(2, 88, 165)"]', promo: '.bg-secondary.text-primary' }
+    'Γαλαξίας': { card: '.product-card, .col', name: '.text-black-i, h2', price: 'span[style*="rgb(2, 88, 165)"]', promo: '.bg-secondary.text-primary' },
+    'Lidl': {
+        card: '.odsc-tile, .product-grid-box',
+        name: '.product-grid-box__title',
+        price: '.ods-price__value',
+        oldPrice: '.ods-price__strikethrough .ods-price__value',
+        promo: '.ods-price__box-content-text-el',
+        availability: '.ods-badge__label',
+        loadMore: '.s-load-more__button',
+    },
 };
 
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
@@ -184,12 +202,25 @@ const extractDataInBrowser = (storeName, config) => {
         // Εικόνα
         const imgEl = card.querySelector('img');
         if (imgEl) imgUrl = imgEl.src || imgEl.getAttribute('data-src');
-        
+
+        // LIDL-specific: validity date + gift/discount text
+        let validityDate = null;
+        let discountPercent = null;
+        if (storeName === 'Lidl') {
+            const badgeEl = card.querySelector('.ods-badge__label');
+            if (badgeEl) validityDate = (badgeEl.textContent || '').trim();
+            const promoEl = card.querySelector('.ods-price__box-content-text-el');
+            if (promoEl) {
+                const pt = (promoEl.textContent || '').trim();
+                if (pt) { discountPercent = pt; isSale = true; }
+            }
+        }
+
         // Αποθήκευση ΜΟΝΟ αν η τιμή είναι έγκυρη
         if (name && priceNum && priceNum > 0) {
             name = name.replace(/(το τεμάχιο|το τεμαχιο|συσκευασία|συσκευασια)/gi, '').trim();
             const normalizedName = name.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-            products.push({ name, normalizedName, supermarket: storeName, price: priceNum, oldPrice: oldPriceNum, isOnSale: isSale, is1plus1: is1plus1, imageUrl: imgUrl });
+            products.push({ name, normalizedName, supermarket: storeName, price: priceNum, oldPrice: oldPriceNum, isOnSale: isSale, is1plus1: is1plus1, imageUrl: imgUrl, validityDate, discountPercent });
         }
     });
     
@@ -352,6 +383,31 @@ async function scrapeKritikos(page, storeName, config, allFound) {
     }
 }
 
+async function scrapeLidl(page, storeName, config, allFound) {
+    try { await page.waitForSelector(config.name, { timeout: 25000 }); } catch(e) {}
+
+    let safetyLimit = 0;
+    while (safetyLimit < 25) {
+        const products = await page.evaluate(extractDataInBrowser, storeName, config);
+        products.forEach(p => allFound.set(p.normalizedName, p));
+
+        // Click "Φορτώστε περισσότερα" button if present
+        const clicked = await page.evaluate((sel) => {
+            const btn = document.querySelector(sel);
+            if (btn && !btn.disabled && btn.offsetParent !== null) {
+                btn.scrollIntoView({ block: 'center' });
+                btn.click();
+                return true;
+            }
+            return false;
+        }, config.loadMore);
+
+        if (!clicked) break;
+        await sleep(2500);
+        safetyLimit++;
+    }
+}
+
 // 🧠 THE WORKER ΜΕ SMART RETRIES
 async function scrapeTask({ page, data: { url, storeName } }) {
     const config = STORE_CONFIGS[storeName];
@@ -397,6 +453,7 @@ async function scrapeTask({ page, data: { url, storeName } }) {
                 case 'Market In': await scrapeMarketIn(page, storeName, config, allFound); break;
                 case 'Μασούτης': await scrapeMasoutis(page, storeName, config, allFound); break;
                 case 'Κρητικός': await scrapeKritikos(page, storeName, config, allFound); break;
+                case 'Lidl':     await scrapeLidl(page, storeName, config, allFound); break;
             }
 
             break; // Επιτυχία! Σπάει το Retry Loop
@@ -433,7 +490,7 @@ async function runWebScraper(targetStore = null) {
     globalIsScraping = true; // Ξεκίνησε!
     completedJobs = 0;
 
-    let urlsToScrape =[ ...SKLAVENITIS_URLS, ...MYMARKET_URLS, ...MASOUTIS_URLS, ...KRITIKOS_URLS, ...GALAXIAS_URLS, ...MARKET_IN_URLS ];
+    let urlsToScrape =[ ...SKLAVENITIS_URLS, ...MYMARKET_URLS, ...MASOUTIS_URLS, ...KRITIKOS_URLS, ...GALAXIAS_URLS, ...MARKET_IN_URLS, ...LIDL_URLS ];
 
     try {
         const jsonPath = path.join(__dirname, '../category_links.json');
@@ -451,6 +508,7 @@ async function runWebScraper(targetStore = null) {
         if (url.includes('kritikos-sm.gr')) return { storeName: 'Κρητικός', url, id: 'kritikos' };
         if (url.includes('galaxias.shop')) return { storeName: 'Γαλαξίας', url, id: 'galaxias' };
         if (url.includes('market-in.gr')) return { storeName: 'Market In', url, id: 'marketin' };
+        if (url.includes('lidl-hellas.gr')) return { storeName: 'Lidl', url, id: 'lidl' };
         return null;
     }).filter(item => item !== null);
 
