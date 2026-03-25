@@ -1,7 +1,67 @@
-// routes/prices.js — Smart Search Engine v2
+// routes/prices.js — Smart Search Engine v3 (EN+GR, transliteration, fuzzy)
 const express = require('express');
 const router  = express.Router();
 const Product = require('../models/Product');
+
+// ── English → Greek food dictionary ──────────────────────────────────────────
+const EN_TO_GR = {
+  // Proteins
+  chicken:'κοτοπουλο', 'chicken breast':'κοτοπουλο στηθος', turkey:'γαλοπουλα',
+  beef:'μοσχαρι', pork:'χοιρινο', lamb:'αρνι', fish:'ψαρι', salmon:'σολομος',
+  tuna:'τονος', shrimp:'γαριδα', egg:'αυγο', eggs:'αυγα', bacon:'μπεικον',
+  ham:'ζαμπον', sausage:'λουκανικο',
+  // Dairy
+  milk:'γαλα', cheese:'τυρι', feta:'φετα', yogurt:'γιαουρτι', yoghurt:'γιαουρτι',
+  butter:'βουτυρο', cream:'κρεμα', 'sour cream':'ξινη κρεμα',
+  // Vegetables
+  tomato:'ντοματα', onion:'κρεμμυδι', garlic:'σκορδο', potato:'πατατα',
+  carrot:'καροτο', pepper:'πιπερια', cucumber:'αγγουρι', lettuce:'μαρουλι',
+  spinach:'σπανακι', broccoli:'μπροκολο', zucchini:'κολοκυθακι',
+  eggplant:'μελιτζανα', mushroom:'μανιταρι', corn:'καλαμποκι',
+  pea:'μπιζελι', bean:'φασολι', beans:'φασολια', lentils:'φακες', lentil:'φακες',
+  chickpea:'ρεβιθι', chickpeas:'ρεβιθια',
+  // Fruits
+  apple:'μηλο', orange:'πορτοκαλι', banana:'μπανανα', grape:'σταφυλι',
+  lemon:'λεμονι', strawberry:'φραουλα', watermelon:'καρπουζι', peach:'ροδακινο',
+  // Grains / carbs
+  bread:'ψωμι', rice:'ρυζι', pasta:'ζυμαρικα', spaghetti:'σπαγγετι',
+  flour:'αλευρι', oats:'βρωμη', oat:'βρωμη', cereal:'δημητριακα',
+  // Oils / fats
+  oil:'λαδι', 'olive oil':'ελαιολαδο', 'sunflower oil':'ηλιελαιο',
+  // Condiments / spices
+  salt:'αλατι', pepper:'πιπερι', sugar:'ζαχαρη', honey:'μελι', vinegar:'ξιδι',
+  ketchup:'κετσαπ', mustard:'μουσταρδα', mayonnaise:'μαγιονεζα',
+  // Beverages
+  water:'νερο', juice:'χυμος', coffee:'καφες', tea:'τσαι', beer:'μπυρα',
+  wine:'κρασι', milk:'γαλα',
+  // Snacks / sweets
+  chocolate:'σοκολατα', cookie:'μπισκοτο', chips:'πατατακια', nuts:'ξηροι καρποι',
+  almond:'αμυγδαλο', almonds:'αμυγδαλα', walnut:'καρυδι', walnuts:'καρυδια',
+};
+
+// ── Greeklish → Greek transliteration map ────────────────────────────────────
+// Handles romanized Greek (e.g. "gala" → "γαλα", "kotopoulo" → "κοτοπουλο")
+const GREEKLISH_MAP = {
+  // Letters
+  'th':'θ','ou':'ου','ks':'ξ','ps':'ψ','ch':'χ','ph':'φ','gh':'γ',
+  'ai':'αι','ei':'ει','oi':'οι','au':'αυ','eu':'ευ',
+  'a':'α','b':'β','g':'γ','d':'δ','e':'ε','z':'ζ','h':'η','i':'ι',
+  'k':'κ','l':'λ','m':'μ','n':'ν','x':'ξ','o':'ο','p':'π','r':'ρ',
+  's':'σ','t':'τ','u':'υ','f':'φ','y':'υ','w':'ω','v':'β','c':'κ','q':'κ',
+};
+
+function greeklishToGreek(text) {
+  // Only attempt if text is clearly Latin (no Greek chars)
+  if (/[α-ωΑ-Ω]/.test(text)) return null;
+  let result = text.toLowerCase();
+  // Apply multi-char mappings first, then single-char
+  const multiChar = ['th','ou','ks','ps','ch','ph','gh','ai','ei','oi','au','eu'];
+  for (const mc of multiChar) result = result.split(mc).join(GREEKLISH_MAP[mc]);
+  for (const [k, v] of Object.entries(GREEKLISH_MAP)) {
+    if (k.length === 1) result = result.split(k).join(v);
+  }
+  return result;
+}
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -125,6 +185,36 @@ router.get('/', async (req, res) => {
   }
 });
 
+// ── Build all search term variants from a raw query ───────────────────────────
+function expandQuery(rawQuery) {
+  const norm = normalize(rawQuery);
+
+  // Check EN→GR dictionary (longest match first)
+  const lower = rawQuery.toLowerCase().trim();
+  const enTranslation = EN_TO_GR[lower] || null;
+
+  // Try greeklish transliteration
+  const greeklishResult = greeklishToGreek(lower);
+
+  // Collect all unique term sets to try (in priority order)
+  const variants = [];
+
+  if (enTranslation) {
+    // Full EN phrase → GR translation
+    variants.push(enTranslation.split(/\s+/).filter(t => t.length > 1));
+  }
+
+  if (greeklishResult && greeklishResult !== norm) {
+    variants.push(greeklishResult.split(/\s+/).filter(t => t.length > 1));
+  }
+
+  // Always include the normalized original terms
+  const originalTerms = norm.split(/\s+/).filter(t => t.length > 1);
+  variants.push(originalTerms);
+
+  return variants;
+}
+
 // ── GET /search — Smart Search ────────────────────────────────────────────────
 router.get('/search', async (req, res) => {
   try {
@@ -133,44 +223,61 @@ router.get('/search', async (req, res) => {
 
     if (rawQuery.length < 2) return res.json([]);
 
-    const normalizedQuery = normalize(rawQuery);
-    const terms = normalizedQuery.split(/\s+/).filter(t => t.length > 1);
+    const storeFilter = (store && store !== 'Όλα') ? { supermarket: store } : {};
 
-    if (terms.length === 0) return res.json([]);
+    const termVariants = expandQuery(rawQuery);
+    const seenIds = new Set();
+    let allCandidates = [];
 
-    // ── Βήμα 1: Φέρε candidates από MongoDB ──────────────────────────────────
-    // Κάνε AND: κάθε term πρέπει να υπάρχει στο normalizedName
-    const regexFilters = terms.map(term => ({
-      normalizedName: { $regex: escapeRegex(term), $options: 'i' }
-    }));
+    // Try each term variant: AND query per variant
+    for (const terms of termVariants) {
+      if (!terms.length) continue;
 
-    const dbQuery = { $and: regexFilters };
-    if (store && store !== 'Όλα') dbQuery.supermarket = store;
+      const regexFilters = terms.map(term => ({
+        normalizedName: { $regex: escapeRegex(term), $options: 'i' }
+      }));
 
-    // Φέρνουμε περισσότερα (100) για να κάνουμε re-rank στη μνήμη
-    const candidates = await Product.find(dbQuery)
-      .sort({ price: 1 })
-      .limit(100)
-      .lean();
+      const candidates = await Product.find({ $and: regexFilters, ...storeFilter })
+        .sort({ price: 1 })
+        .limit(100)
+        .lean();
 
-    // ── Βήμα 2: Βαθμολόγησε + ταξινόμησε ────────────────────────────────────
-    const scored = candidates
-      .map(p => ({
-        ...p,
-        _score: scoreMultiWord(p.name, terms),
-      }))
-      .filter(p => p._score > 10)
-      .sort((a, b) => {
-        // Πρώτα score (φθίνουσα), μετά τιμή (αύξουσα)
-        if (b._score !== a._score) return b._score - a._score;
-        return (a.price || 0) - (b.price || 0);
-      })
-      .slice(0, 20); // Επέστρεψε τα 20 καλύτερα
+      for (const c of candidates) {
+        if (!seenIds.has(c._id.toString())) {
+          seenIds.add(c._id.toString());
+          allCandidates.push({ ...c, _terms: terms });
+        }
+      }
+    }
 
-    // Αφαίρεσε το _score από το response
-    const results = scored.map(({ _score, ...p }) => p);
+    // If AND found nothing, try OR fallback with original terms
+    if (allCandidates.length === 0) {
+      const originalTerms = normalize(rawQuery).split(/\s+/).filter(t => t.length > 1);
+      if (originalTerms.length > 1) {
+        const orFilters = originalTerms.map(term => ({
+          normalizedName: { $regex: escapeRegex(term), $options: 'i' }
+        }));
+        const fallback = await Product.find({ $or: orFilters, ...storeFilter })
+          .sort({ price: 1 })
+          .limit(100)
+          .lean();
+        for (const c of fallback) {
+          if (!seenIds.has(c._id.toString())) {
+            seenIds.add(c._id.toString());
+            allCandidates.push({ ...c, _terms: originalTerms });
+          }
+        }
+      }
+    }
 
-    res.json(results);
+    // Score and rank
+    const scored = allCandidates
+      .map(p => ({ ...p, _score: scoreMultiWord(p.name, p._terms || [normalize(rawQuery)]) }))
+      .filter(p => p._score > 5)
+      .sort((a, b) => b._score !== a._score ? b._score - a._score : (a.price || 0) - (b.price || 0))
+      .slice(0, 20);
+
+    res.json(scored.map(({ _score, _terms, ...p }) => p));
   } catch (error) {
     console.error('Σφάλμα στην Αναζήτηση:', error);
     res.status(500).json({ message: 'Σφάλμα διακομιστή' });
