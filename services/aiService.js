@@ -1,20 +1,23 @@
 // services/aiService.js
-// Priority 1: Google Gemini 2.0 Flash  (free: 1,500 req/day, 15 RPM, 1M context)
-// Priority 2: Groq llama-3.3-70b       (free: 14,400 req/day, 30 RPM, 128K context)
-// Priority 3: Bytez Qwen3-4B           (free tier, 32K context — emergency fallback)
+// Priority 1: Claude claude-haiku-4-5              (best instruction-following, JSON accuracy)
+// Priority 2: Google Gemini 2.0 Flash  (free: 1,500 req/day, 15 RPM, 1M context)
+// Priority 3: Groq llama-3.3-70b       (free: 14,400 req/day, 30 RPM, 128K context)
+// Priority 4: Bytez Qwen3-4B           (free tier, 32K context — emergency fallback)
 // Auto-switches if one provider fails or rate-limits
 
+const Anthropic = require('@anthropic-ai/sdk');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const Groq = require('groq-sdk');
 
 // ── In-memory rate-limit tracker (resets every minute) ────────────────────────
 const rateTracker = {
+  claude: { count: 0, resetAt: Date.now() + 60_000 },
   gemini: { count: 0, resetAt: Date.now() + 60_000 },
   groq:   { count: 0, resetAt: Date.now() + 60_000 },
   bytez:  { count: 0, resetAt: Date.now() + 60_000 },
 };
 
-const LIMITS = { gemini: 14, groq: 28, bytez: 50 };
+const LIMITS = { claude: 50, gemini: 14, groq: 28, bytez: 50 };
 
 function canUse(provider) {
   const t = rateTracker[provider];
@@ -22,6 +25,21 @@ function canUse(provider) {
   return t.count < LIMITS[provider];
 }
 function tick(provider) { rateTracker[provider].count++; }
+
+// ── Claude claude-haiku-4-5 call (priority 1 — best JSON instruction-following) ──────────────
+async function callClaude(systemPrompt, userPrompt) {
+  const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+  tick('claude');
+  const message = await client.messages.create({
+    model: 'claude-haiku-4-5-20251001',
+    max_tokens: 16000,
+    system: systemPrompt,
+    messages: [{ role: 'user', content: userPrompt }],
+    temperature: 0.4,
+  });
+  const raw = message.content[0]?.text || '{}';
+  return parseJSON(raw, 'Claude');
+}
 
 // ── Gemini call (upgraded to 2.0 Flash) ──────────────────────────────────────
 async function callGemini(systemPrompt, userPrompt) {
@@ -105,8 +123,9 @@ function parseJSON(raw, provider) {
 // ── Main exported function — auto-selects provider ────────────────────────────
 async function callAI(systemPrompt, userPrompt) {
   const providers = [
-    { name: 'Gemini 2.0 Flash',    key: 'GEMINI_API_KEY', tracker: 'gemini', fn: callGemini },
-    { name: 'Groq llama-3.3-70b',  key: 'GROQ_API_KEY',   tracker: 'groq',   fn: callGroq },
+    { name: 'Claude claude-haiku-4-5',     key: 'ANTHROPIC_API_KEY', tracker: 'claude', fn: callClaude },
+    { name: 'Gemini 2.0 Flash',    key: 'GEMINI_API_KEY',   tracker: 'gemini', fn: callGemini },
+    { name: 'Groq llama-3.3-70b',  key: 'GROQ_API_KEY',    tracker: 'groq',   fn: callGroq },
     { name: 'Bytez Qwen3-4B',      key: 'BYTEZ_API_KEY',   tracker: 'bytez',  fn: callBytez },
   ];
 

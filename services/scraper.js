@@ -384,25 +384,81 @@ async function scrapeKritikos(page, storeName, config, allFound) {
 }
 
 async function scrapeLidl(page, storeName, config, allFound) {
-    try { await page.waitForSelector(config.name, { timeout: 25000 }); } catch(e) {}
+    // LIDL uses data-grid-data JSON attribute on .odsc-tile divs — NOT standard CSS text selectors
+    try { await page.waitForSelector('.odsc-tile[data-grid-data]', { timeout: 25000 }); } catch(e) {}
 
+    const MAX_CLICKS = 60; // supports up to ~720 products (60 × 12)
     let safetyLimit = 0;
-    while (safetyLimit < 25) {
-        const products = await page.evaluate(extractDataInBrowser, storeName, config);
+
+    while (safetyLimit < MAX_CLICKS) {
+        // Extract products by parsing the data-grid-data JSON attribute
+        const products = await page.evaluate((storeNameArg) => {
+            const tiles = document.querySelectorAll('.odsc-tile[data-grid-data]');
+            const result = [];
+            tiles.forEach(tile => {
+                try {
+                    const data = JSON.parse(tile.getAttribute('data-grid-data'));
+                    const title = data.fullTitle || data.title || '';
+                    if (!title) return;
+
+                    const priceObj = data.price || {};
+                    const priceNum = priceObj.price || 0;
+                    if (!priceNum || priceNum <= 0) return;
+
+                    const rawOld = priceObj.oldPrice || 0;
+                    const oldPriceNum = rawOld > 0 ? rawOld : null;
+                    const priceTheme = priceObj.priceTheme || '';
+                    let isSale = priceTheme === 'white_red' || !!oldPriceNum;
+                    let is1plus1 = false;
+                    let discountPercent = null;
+
+                    (data.ribbons || []).forEach(r => {
+                        const txt = (r.text || r.label || JSON.stringify(r)).toLowerCase();
+                        if (txt.includes('1+1') || txt.includes('+1')) { is1plus1 = true; isSale = true; }
+                        const m = txt.match(/(-?\d+)\s*%/);
+                        if (m) { discountPercent = m[0]; isSale = true; }
+                    });
+
+                    // Skip out-of-stock
+                    const stock = data.stockAvailability || {};
+                    if (stock.available === false) return;
+
+                    const imgUrl = (data.media && data.media[0] && data.media[0].url) || data.imageUrl || null;
+                    const packagingText = (priceObj.packaging && priceObj.packaging.text) || '';
+                    const basePriceText = (priceObj.basePrice && priceObj.basePrice.text) || '';
+
+                    const name = title.replace(/(το τεμάχιο|το τεμαχιο|συσκευασία|συσκευασια)/gi, '').trim();
+                    const normalizedName = name.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+
+                    result.push({ name, normalizedName, supermarket: storeNameArg, price: priceNum, oldPrice: oldPriceNum, isOnSale: isSale, is1plus1, imageUrl: imgUrl, discountPercent, packagingText, basePriceText });
+                } catch(e) {}
+            });
+            return result;
+        }, storeName);
+
         products.forEach(p => allFound.set(p.normalizedName, p));
 
-        // Click "Φορτώστε περισσότερα" button if present
-        const clicked = await page.evaluate((sel) => {
-            const btn = document.querySelector(sel);
-            if (btn && !btn.disabled && btn.offsetParent !== null) {
-                btn.scrollIntoView({ block: 'center' });
-                btn.click();
-                return true;
+        // Check counter ".s-load-more__text" → "12 / 523" to know when done
+        const { loaded, total, hasButton } = await page.evaluate((loadMoreSel) => {
+            const counterEl = document.querySelector('.s-load-more__text');
+            let loaded = 0, total = 0;
+            if (counterEl) {
+                const m = counterEl.textContent.match(/(\d+)\s*[\/|]\s*(\d+)/);
+                if (m) { loaded = parseInt(m[1]); total = parseInt(m[2]); }
             }
-            return false;
+            const btn = document.querySelector(loadMoreSel);
+            return { loaded, total, hasButton: !!btn && !btn.disabled && btn.offsetParent !== null };
         }, config.loadMore);
 
-        if (!clicked) break;
+        console.log(`  🛒 LIDL: ${loaded}/${total} προϊόντα φορτώθηκαν (${allFound.size} μοναδικά)`);
+
+        if (!hasButton || (total > 0 && loaded >= total)) break;
+
+        await page.evaluate((sel) => {
+            const btn = document.querySelector(sel);
+            if (btn) { btn.scrollIntoView({ block: 'center' }); btn.click(); }
+        }, config.loadMore);
+
         await sleep(2500);
         safetyLimit++;
     }
