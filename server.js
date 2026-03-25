@@ -40,6 +40,13 @@ app.use(cors({
   },
 }));
 
+// ── Stripe webhook needs raw body — mount BEFORE express.json() ────────────
+const stripeRoutes = require('./routes/stripe');
+app.use('/api/stripe/webhook', express.raw({ type: 'application/json' }), (req, res, next) => {
+  // Forward to the webhook handler in stripe routes
+  next();
+});
+
 app.use(express.json());
 
 // ── Rate Limiting ─────────────────────────────────────────────────────────────
@@ -87,6 +94,7 @@ app.use('/api/recipes',   recipeRoutes);
 app.use('/api/chat',      chatRoutes);
 app.use('/api/meal-plan', mealPlanRoutes);
 app.use('/api/favorites', favoritesRoutes);
+app.use('/api/stripe',    stripeRoutes);
 
 // ── Health & Admin ────────────────────────────────────────────────────────────
 app.get('/api/health',  (req, res) => res.status(200).send('OK'));
