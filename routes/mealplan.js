@@ -22,46 +22,85 @@ async function findBestPrice(ingredient) {
   return null;
 }
 
+// Extract grams from ingredient string like "200γρ κοτόπουλο στήθος" or "2 αυγά (120γρ)"
+function extractGrams(ingredientStr) {
+  if (typeof ingredientStr !== 'string') return null;
+  const match = ingredientStr.match(/(\d+)\s*[γg]ρ?/i);
+  return match ? parseInt(match[1]) : null;
+}
+
+// Estimate per-use cost from full product price
+// Most supermarket products are sold per kg or per unit
+// If pricePerUnit contains "/κιλ" or similar, calculate proportionally
+function estimateIngredientCost(productPrice, pricePerUnit, gramsUsed) {
+  if (!productPrice || !gramsUsed) return productPrice;
+  // If we have a per-kilo price, use it directly
+  if (pricePerUnit) {
+    const perKiloMatch = pricePerUnit.match(/([\d,.]+)\s*€?\s*\/\s*κιλ/i);
+    if (perKiloMatch) {
+      const pricePerKg = parseFloat(perKiloMatch[1].replace(',', '.'));
+      return Math.round(pricePerKg * gramsUsed / 1000 * 100) / 100;
+    }
+  }
+  // Fallback: assume product is ~1kg, estimate proportionally
+  // Cap at full product price
+  const estimated = Math.round(productPrice * gramsUsed / 1000 * 100) / 100;
+  return Math.min(estimated, productPrice);
+}
+
 const SYSTEM_PROMPT = `Είσαι πιστοποιημένος διαιτολόγος και σεφ με εξειδίκευση στη Μεσογειακή και Ελληνική κουζίνα.
 Δημιουργείς ΡΕΑΛΙΣΤΙΚΑ, ΜΑΓΕΙΡΕΨΙΜΑ γεύματα που φτιάχνονται πραγματικά σε ελληνικά σπίτια.
 
-ΑΥΣΤΗΡΟΙ ΚΑΝΟΝΕΣ MACROS (ΥΠΟΧΡΕΩΤΙΚΟΙ - ΜΗΝ ΠΑΡΑΒΑΙΝΕΙΣ):
-1. ΑΚΡΙΒΕΙΑ ΘΕΡΜΙΔΩΝ: Οι θερμίδες ΠΡΕΠΕΙ να υπολογίζονται ΑΚΡΙΒΩΣ από τον τύπο:
-   kcal = (protein × 4) + (carbs × 4) + (fat × 9)
-   Παράδειγμα: protein=30g, carbs=50g, fat=15g → kcal = (30×4)+(50×4)+(15×9) = 120+200+135 = 455 kcal
-   ΠΟΤΕ μην βάζεις τυχαίο αριθμό θερμίδων — πρέπει να βγαίνει από τον τύπο.
+═══ ΑΥΣΤΗΡΟΙ ΚΑΝΟΝΕΣ MACROS (ΥΠΟΧΡΕΩΤΙΚΟΙ) ═══
 
-2. ΡΕΑΛΙΣΤΙΚΟ ΕΛΑΙΟΛΑΔΟ: Κάθε γεύμα που μαγειρεύεται με ελαιόλαδο πρέπει να έχει ΤΟΥΛΑΧΙΣΤΟΝ 1-2 κ.σ. (15-30ml ≈ 14-28γρ ≈ 120-250 θερμίδες). Μην βάζεις "1/4 κ.γ." ή "μερικές σταγόνες".
+1. ΑΚΡΙΒΕΙΑ ΘΕΡΜΙΔΩΝ — Υπολόγισε ΠΡΩΤΑ τα macros ανά υλικό, ΜΕΤΑ άθροισέ τα:
+   Για ΚΑΘΕ υλικό υπολόγισε: πρωτεΐνη, υδατάνθρακες, λιπαρά ανά 100γρ × ποσότητα/100
+   Παράδειγμα 200γρ κοτόπουλο στήθος ωμό: 23g πρωτ/100g → 46g πρωτ, 0g carbs, 1.2g λιπ/100g → 2.4g λιπ
+   ΤΕΛΟΣ: kcal = (Σ protein × 4) + (Σ carbs × 4) + (Σ fat × 9)
 
-3. ΠΟΙΚΙΛΙΑ ΥΠΟΧΡΕΩΤΙΚΗ:
-   - Πρωινό: Τουλάχιστον 4 διαφορετικά είδη που εναλλάσσονται κυκλικά (π.χ. ομελέτα, γιαούρτι με μέλι/granola, τοστ/τυρί, βρόμη με φρούτα)
-   - Μεσημεριανό: Τουλάχιστον 5 διαφορετικά πιάτα (π.χ. κοτόπουλο σχάρας, φακές, μακαρόνια, ψάρι, μοσχάρι/χοιρινό)
-   - Βραδινό: Τουλάχιστον 5 διαφορετικά (π.χ. σαλάτα με τυρί, γιαούρτι, αυγά, σούπα, ψητά λαχανικά)
-   ΜΗΝ επαναλαμβάνεις το ίδιο γεύμα σε διαδοχικές ημέρες.
+   ΑΝΑΦΟΡΑ MACROS ΑΝΑ 100g ΩΜΟ ΤΡΟΦΙΜΟ (χρησιμοποίησε αυτές τις τιμές):
+   - Κοτόπουλο στήθος: 23g P, 0g C, 1.2g F → 104 kcal
+   - Γαλοπούλα στήθος: 24g P, 0g C, 1g F → 105 kcal
+   - Μοσχαρίσιος κιμάς: 19g P, 0g C, 12g F → 188 kcal
+   - Χοιρινό: 21g P, 0g C, 7g F → 151 kcal
+   - Σολομός: 20g P, 0g C, 13g F → 201 kcal
+   - Αυγό (60γρ): 7.5g P, 0.6g C, 5.3g F → 80 kcal
+   - Φέτα: 14g P, 1g C, 21g F → 250 kcal
+   - Γιαούρτι στραγγιστό 2%: 10g P, 4g C, 2g F → 74 kcal
+   - Ελαιόλαδο (1 κ.σ.=14γρ): 0g P, 0g C, 14g F → 126 kcal
+   - Ρύζι (ωμό): 7g P, 78g C, 0.6g F → 345 kcal
+   - Ζυμαρικά (ωμά): 13g P, 71g C, 1.5g F → 350 kcal
+   - Φακές (ωμές): 25g P, 60g C, 1g F → 353 kcal
+   - Πατάτες: 2g P, 17g C, 0.1g F → 77 kcal
+   - Βρόμη: 13g P, 66g C, 7g F → 379 kcal
+   - Ψωμί ολικής: 9g P, 43g C, 3g F → 237 kcal
+   - Μέλι (1 κ.σ.=21γρ): 0g P, 17g C, 0g F → 64 kcal
 
-4. ΡΕΑΛΙΣΤΙΚΕΣ ΠΟΣΟΤΗΤΕΣ (όλα σε γραμμάρια ωμά):
-   - Κρέας/ψάρι: 150-250γρ ωμό
-   - Ρύζι/ζυμαρικά: 60-100γρ ωμό  
+2. ΡΕΑΛΙΣΤΙΚΟ ΕΛΑΙΟΛΑΔΟ: Κάθε μαγειρεμένο γεύμα: ΤΟΥΛΑΧΙΣΤΟΝ 1 κ.σ. (14γρ = 126kcal). Σαλάτες: 1-2 κ.σ. Μην βάζεις ποτέ κάτω από 10γρ.
+
+3. ΠΟΙΚΙΛΙΑ (ΚΡΙΣΙΜΟ — ΚΑΝΕΝΑ γεύμα δεν επαναλαμβάνεται):
+   - 7 ΔΙΑΦΟΡΕΤΙΚΑ πρωινά (ομελέτα, βρόμη, τοστ, γιαούρτι-μέλι-granola, pancake βρώμης, αυγά ποσέ, smoothie bowl)
+   - 7 ΔΙΑΦΟΡΕΤΙΚΑ μεσημεριανά (κοτόπουλο ψητό, φακές, ψάρι, μοσχάρι/κιμάς, μακαρόνια, αρνάκι/χοιρινό, γεμιστά/μπριάμ)
+   - 7 ΔΙΑΦΟΡΕΤΙΚΑ βραδινά (σαλάτα χωριάτικη, σούπα, ομελέτα λαχανικών, γιαούρτι, τόνος σαλάτα, ψητά λαχανικά, αυγά-τυρί)
+   ΜΗΝ επαναλαμβάνεις κανένα γεύμα. Κάθε ημέρα ΠΡΕΠΕΙ να είναι μοναδική.
+
+4. ΡΕΑΛΙΣΤΙΚΕΣ ΠΟΣΟΤΗΤΕΣ (γραμμάρια ωμά, ΑΝΑ ΑΤΟΜΟ):
+   - Κρέας/ψάρι: 150-250γρ
+   - Ρύζι/ζυμαρικά: 70-100γρ ωμό
    - Όσπρια: 80-120γρ ωμά
    - Λαχανικά: 150-300γρ
-   - Ελαιόλαδο: 15-30γρ (1-2 κ.σ.)
-   - Τυρί φέτα: 30-60γρ
+   - Ελαιόλαδο: 14-28γρ (1-2 κ.σ.)
+   - Τυρί φέτα: 40-60γρ
    - Γιαούρτι: 150-200γρ
+   - Αυγά: 2-3 τεμ (120-180γρ)
 
-5. ΡΕΑΛΙΣΤΙΚΕΣ ΤΙΜΕΣ ΕΛΛΗΝΙΚΟΥ ΣΟΥΠΕΡ ΜΑΡΚΕΤ:
-   - Ελαιόλαδο: ~12€/λίτρο
-   - Φέτα: ~12-14€/κιλό
-   - Κοτόπουλο στήθος: ~9-11€/κιλό
-   - Μοσχαρίσιος κιμάς: ~11-13€/κιλό
-   - Γιαούρτι στραγγιστό: ~3-4€/500γρ
-   - Αυγά: ~3-4€/10τεμ
-
-ΓΕΝΙΚΟΙ ΚΑΝΟΝΕΣ:
-- Χρησιμοποίησε ΜΟΝΟ υλικά από ελληνικά σούπερ μάρκετ.
-- Τα ονόματα γευμάτων να είναι ΑΝΑΓΝΩΡΙΣΙΜΑ ελληνικά πιάτα.
-- Κάθε υλικό ΝΑ ΕΧΕΙ ποσότητα σε γραμμάρια.
-- description: 1-2 προτάσεις παρασκευής (απλά, κατανοητά).
-- prepTip: 1 χρήσιμη συμβουλή μαγειρικής.
+═══ ΓΕΝΙΚΟΙ ΚΑΝΟΝΕΣ ═══
+- ΜΟΝΟ υλικά από ελληνικά σούπερ μάρκετ
+- Ονόματα: ΑΝΑΓΝΩΡΙΣΙΜΑ ελληνικά πιάτα
+- Κάθε υλικό: ποσότητα σε γραμμάρια (ωμό βάρος)
+- description: 2-3 προτάσεις παρασκευής (σαφείς, βήμα-βήμα)
+- prepTip: 1 χρήσιμη συμβουλή
+- Κάθε γεύμα: ΤΟΥΛΑΧΙΣΤΟΝ 3 υλικά, ΜΗΝ κάνεις γεύματα με 1-2 υλικά μόνο
 Απαντάς ΜΟΝΟ σε raw JSON χωρίς markdown, χωρίς κείμενο εκτός JSON.`;
 
 function buildPrompt({ persons, budget, restrictions, goal, days, tdee, zigzag, gender, age, weight, height, activityLevel, macroRatios }) {
@@ -257,23 +296,42 @@ router.post('/', async (req, res) => {
     });
     // ── End macro correction ──────────────────────────────────────────────────
 
-    const allIngredients = new Set();
+    // Collect all unique ingredients with their quantities
+    const ingredientMap = new Map(); // name → { totalGrams, rawNames[] }
     planData.plan.forEach(d =>
       Object.values(d.meals).forEach(m => (m.ingredients||[]).forEach(i => {
-        // ingredients now include grams — extract just the name for price lookup
-        const name = typeof i === 'string' ? i.replace(/^\d+[γg]ρ?\s*/i,'').split('(')[0].trim() : i;
-        allIngredients.add(name.toLowerCase().trim());
+        const rawName = typeof i === 'string' ? i : i;
+        const cleanName = rawName.replace(/^\d+[γg]ρ?\s*/i,'').split('(')[0].trim().toLowerCase();
+        const grams = extractGrams(rawName);
+        if (!ingredientMap.has(cleanName)) {
+          ingredientMap.set(cleanName, { totalGrams: 0, rawNames: [] });
+        }
+        const entry = ingredientMap.get(cleanName);
+        if (grams) entry.totalGrams += grams;
+        entry.rawNames.push(rawName);
       }))
     );
-    (planData.summary?.estimatedIngredients||[]).forEach(i => allIngredients.add(i.toLowerCase().trim()));
+    (planData.summary?.estimatedIngredients||[]).forEach(i => {
+      const key = i.toLowerCase().trim();
+      if (!ingredientMap.has(key)) ingredientMap.set(key, { totalGrams: 0, rawNames: [i] });
+    });
 
     const priceMap = {};
-    await Promise.all([...allIngredients].map(async i => { const r = await findBestPrice(i); if(r) priceMap[i]=r; }));
+    await Promise.all([...ingredientMap.keys()].map(async i => { const r = await findBestPrice(i); if(r) priceMap[i]=r; }));
 
-    const shoppingList = [...allIngredients].map(i => ({
-      ingredient:i, found:!!priceMap[i], price:priceMap[i]?.price||null,
-      store:priceMap[i]?.store||null, productName:priceMap[i]?.name||i, unit:priceMap[i]?.unit||null,
-    })).sort((a,b) => a.found===b.found ? 0 : a.found ? -1 : 1);
+    const shoppingList = [...ingredientMap.entries()].map(([name, data]) => {
+      const product = priceMap[name];
+      const estimatedPrice = product
+        ? (data.totalGrams > 0
+            ? estimateIngredientCost(product.price, product.unit, data.totalGrams)
+            : product.price)
+        : null;
+      return {
+        ingredient: name, found: !!product, price: estimatedPrice,
+        store: product?.store || null, productName: product?.name || name, unit: product?.unit || null,
+        totalGrams: data.totalGrams || null,
+      };
+    }).sort((a,b) => a.found===b.found ? 0 : a.found ? -1 : 1);
 
     const enrichedPlan = planData.plan.map(d => ({
       ...d,
@@ -282,11 +340,16 @@ router.post('/', async (req, res) => {
         ingredients:(m.ingredients||[]).map(i => {
           const rawName = typeof i === 'string' ? i : i.name;
           const cleanName = rawName.replace(/^\d+[γg]ρ?\s*/i,'').split('(')[0].trim().toLowerCase();
+          const grams = extractGrams(rawName);
+          const product = priceMap[cleanName];
+          const estPrice = product && grams
+            ? estimateIngredientCost(product.price, product.unit, grams)
+            : product?.price || null;
           return {
             name: rawName,
-            found: !!priceMap[cleanName],
-            price: priceMap[cleanName]?.price||null,
-            store: priceMap[cleanName]?.store||null,
+            found: !!product,
+            price: estPrice,
+            store: product?.store || null,
           };
         }),
       }])),
