@@ -9,9 +9,9 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
 // ── Price configuration (in EUR cents) ──────────────────────────────────────
 const PRICES = {
-  monthly:  { amount: 199, interval: 'month',  label: 'Premium Μηνιαία' },
-  yearly:   { amount: 1499, interval: 'year',  label: 'Premium Ετήσια' },
-  lifetime: { amount: 2999, interval: null,     label: 'Premium Lifetime' },
+  monthly:  { amount:  99, interval: 'month', label: 'Premium Μηνιαία'  },
+  yearly:   { amount: 799, interval: 'year',  label: 'Premium Ετήσια'   },
+  lifetime: { amount: 1499, interval: null,   label: 'Premium Lifetime' },
 };
 
 // ── 1. CREATE CHECKOUT SESSION ──────────────────────────────────────────────
