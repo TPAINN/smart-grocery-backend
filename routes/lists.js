@@ -7,7 +7,7 @@ const auth = require('../middleware/authMiddleware');
 // 1. ΛΗΨΗ ΟΛΩΝ ΤΩΝ ΛΙΣΤΩΝ ΤΟΥ ΧΡΗΣΤΗ
 router.get('/', auth, async (req, res) => {
     try {
-        const lists = await SavedList.find({ userId: req.user.id }).sort({ createdAt: -1 }); // Οι πιο πρόσφατες πρώτα
+        const lists = await SavedList.find({ userId: req.userId }).sort({ createdAt: -1 }); // Οι πιο πρόσφατες πρώτα
         res.json(lists);
     } catch (err) {
         res.status(500).json({ message: 'Σφάλμα κατά την ανάκτηση των λιστών.' });
@@ -20,7 +20,7 @@ router.post('/', auth, async (req, res) => {
         const { title, items } = req.body;
         
         // Έλεγχος ορίων!
-        const userListsCount = await SavedList.countDocuments({ userId: req.user.id });
+        const userListsCount = await SavedList.countDocuments({ userId: req.userId });
         const limit = req.user.isPremium ? 10 : 2; // 10 για Premium, 2 για Free
         
         if (userListsCount >= limit) {
@@ -29,7 +29,7 @@ router.post('/', auth, async (req, res) => {
             });
         }
 
-        const newList = new SavedList({ userId: req.user.id, title, items });
+        const newList = new SavedList({ userId: req.userId, title, items });
         await newList.save();
         res.status(201).json(newList);
     } catch (err) {
@@ -41,7 +41,7 @@ router.post('/', auth, async (req, res) => {
 router.put('/:id', auth, async (req, res) => {
     try {
         const updatedList = await SavedList.findOneAndUpdate(
-            { _id: req.params.id, userId: req.user.id },
+            { _id: req.params.id, userId: req.userId },
             { items: req.body.items, title: req.body.title },
             { new: true } // Επιστρέφει την ανανεωμένη λίστα
         );
@@ -54,7 +54,7 @@ router.put('/:id', auth, async (req, res) => {
 // 4. ΔΙΑΓΡΑΦΗ ΛΙΣΤΑΣ
 router.delete('/:id', auth, async (req, res) => {
     try {
-        await SavedList.findOneAndDelete({ _id: req.params.id, userId: req.user.id });
+        await SavedList.findOneAndDelete({ _id: req.params.id, userId: req.userId });
         res.json({ message: 'Η λίστα διαγράφηκε.' });
     } catch (err) {
         res.status(500).json({ message: 'Σφάλμα κατά τη διαγραφή.' });

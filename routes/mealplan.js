@@ -4,6 +4,7 @@ const express = require('express');
 const router  = express.Router();
 const Product = require('../models/Product');
 const { callAI } = require('../services/aiService');
+const authMiddleware = require('../middleware/authMiddleware');
 
 const normalize   = (t) => (t||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim();
 const escapeRegex = (s) => s.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
@@ -237,7 +238,7 @@ ${meatGuidelines}
 }`;
 }
 
-router.post('/', async (req, res) => {
+router.post('/', authMiddleware, async (req, res) => {
   const {
     persons=2, budget=80, restrictions=[], goal='balanced', days=7,
     tdee=null, zigzag=null, gender='male', age=30, weight=75, height=175, activityLevel='moderate',

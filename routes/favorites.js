@@ -11,7 +11,7 @@ const isValidId = (id) => mongoose.Types.ObjectId.isValid(id);
 // ── GET /api/favorites — Get all user's favorites (with full recipe data) ────
 router.get('/', auth, async (req, res) => {
   try {
-    const favorites = await Favorite.find({ userId: req.user.id })
+    const favorites = await Favorite.find({ userId: req.userId })
       .sort({ addedAt: -1 })
       .lean();
 
@@ -32,7 +32,7 @@ router.get('/', auth, async (req, res) => {
 // ── GET /api/favorites/ids — Get just the recipe IDs (lightweight, for syncing) ──
 router.get('/ids', auth, async (req, res) => {
   try {
-    const favorites = await Favorite.find({ userId: req.user.id })
+    const favorites = await Favorite.find({ userId: req.userId })
       .select('recipeId addedAt')
       .sort({ addedAt: -1 })
       .lean();
@@ -54,7 +54,7 @@ router.post('/:recipeId', auth, async (req, res) => {
     }
 
     // Check if already favorited
-    const existing = await Favorite.findOne({ userId: req.user.id, recipeId });
+    const existing = await Favorite.findOne({ userId: req.userId, recipeId });
     if (existing) {
       return res.json({ message: 'Ήδη στα αγαπημένα', favorited: true });
     }
@@ -66,7 +66,7 @@ router.post('/:recipeId', auth, async (req, res) => {
     }
 
     await Favorite.create({
-      userId:   req.user.id,
+      userId:   req.userId,
       recipeId,
       recipe: {
         title:        recipe.title,
@@ -110,7 +110,7 @@ router.delete('/:recipeId', auth, async (req, res) => {
     if (!isValidId(recipeId)) {
       return res.status(400).json({ message: 'Μη έγκυρο recipeId' });
     }
-    await Favorite.deleteOne({ userId: req.user.id, recipeId });
+    await Favorite.deleteOne({ userId: req.userId, recipeId });
     res.json({ message: 'Αφαιρέθηκε από τα αγαπημένα', favorited: false });
   } catch (err) {
     console.error('❌ DELETE /api/favorites error:', err.message);

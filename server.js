@@ -96,6 +96,16 @@ app.use('/api/meal-plan', mealPlanRoutes);
 app.use('/api/favorites', favoritesRoutes);
 app.use('/api/stripe',    stripeRoutes);
 
+// ── Rate limiter for expensive AI endpoints ───────────────────────────────────
+const aiLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 ώρα
+  max: 15,                   // max 15 AI requests/ώρα per IP
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { message: 'Πολλά αιτήματα AI. Δοκίμασε ξανά σε 1 ώρα.' },
+});
+app.use('/api/meal-plan', aiLimiter);
+
 // ── Health & Admin ────────────────────────────────────────────────────────────
 app.get('/api/health',  (req, res) => res.status(200).send('OK'));
 app.get('/api/status',  (req, res) => res.json({ isScraping: getScrapingStatus() }));
@@ -195,6 +205,27 @@ io.on('connection', (socket) => {
     console.log('🔌 Socket disconnected:', socket.id);
   });
 });
+
+// ── 404 Catch-all (after all routes) ─────────────────────────────────────────
+app.use((req, res) => {
+  res.status(404).json({ message: `Route not found: ${req.method} ${req.path}` });
+});
+
+// ── Global error handler ──────────────────────────────────────────────────────
+app.use((err, req, res, next) => { // eslint-disable-line no-unused-vars
+  console.error('❌ Unhandled error:', err.message);
+  res.status(err.status || 500).json({ message: err.message || 'Εσωτερικό σφάλμα διακομιστή.' });
+});
+
+// ── Startup env validation ────────────────────────────────────────────────────
+const REQUIRED_ENV = ['MONGO_URI', 'JWT_SECRET', 'STRIPE_SECRET_KEY', 'STRIPE_WEBHOOK_SECRET'];
+const missing = REQUIRED_ENV.filter(k => !process.env[k]);
+if (missing.length > 0) {
+  console.error(`❌ FATAL: Missing required environment variables: ${missing.join(', ')}`);
+  console.error('   Set these in your Render environment before deploying.');
+  // Don't exit in dev so the developer can still work; warn loudly in prod
+  if (process.env.NODE_ENV === 'production') process.exit(1);
+}
 
 // ── Start ─────────────────────────────────────────────────────────────────────
 const PORT = process.env.PORT || 5000;
