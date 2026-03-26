@@ -24,6 +24,23 @@ const strictLimiter = rateLimit({
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
+// Ensures every user has a persistent shareKey in MongoDB.
+// Fixes the "randomizing key" bug: if a user was created before the shareKey
+// field existed, mongoose applies the default() generator in memory but never
+// writes it back, so each read produces a different random value.
+const ensureShareKey = async (user) => {
+  if (user.shareKey) return user;
+  const newKey = (Math.random().toString(36).substring(2, 10) +
+                  Math.random().toString(36).substring(2, 9))
+    .toUpperCase()
+    .substring(0, 15);
+  return await User.findByIdAndUpdate(
+    user._id,
+    { $set: { shareKey: newKey } },
+    { new: true }
+  );
+};
+
 // Computes effective premium status:
 //   isPremium = true  → manual grant from MongoDB (permanent)
 //   trialEndsAt > now → 14-day free trial (temporary)
@@ -116,8 +133,10 @@ router.post('/login', strictLimiter, async (req, res) => {
     if (!user || !(await bcrypt.compare(password, user.password)))
       return res.status(400).json({ message: 'Λάθος email ή κωδικός.' });
 
-    const token = jwt.sign({ id: user._id, isPremium: user.isPremium }, JWT_SECRET, { expiresIn: '30d' });
-    res.json({ token, user: safeUser(user) });
+    // Ensure legacy users (created before shareKey field) get a persistent key
+    const userWithKey = await ensureShareKey(user);
+    const token = jwt.sign({ id: userWithKey._id, isPremium: userWithKey.isPremium }, JWT_SECRET, { expiresIn: '30d' });
+    res.json({ token, user: safeUser(userWithKey) });
   } catch (err) {
     res.status(500).json({ message: 'Σφάλμα κατά τη σύνδεση.' });
   }
@@ -271,8 +290,11 @@ router.get('/me', authMiddleware, async (req, res) => {
 // from the DB (bypasses the cached JWT value)
 router.get('/refresh-premium', authMiddleware, async (req, res) => {
   try {
-    const user = await User.findById(req.userId).select('-password');
-    if (!user) return res.status(404).json({ message: 'Χρήστης δεν βρέθηκε.' });
+    const rawUser = await User.findById(req.userId).select('-password');
+    if (!rawUser) return res.status(404).json({ message: 'Χρήστης δεν βρέθηκε.' });
+
+    // Ensure this user has a persistent shareKey in DB (fixes legacy accounts)
+    const user = await ensureShareKey(rawUser);
 
     // Issue a fresh token so subsequent calls also carry correct isPremium
     const safe  = safeUser(user);
