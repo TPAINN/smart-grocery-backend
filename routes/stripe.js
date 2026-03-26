@@ -120,21 +120,23 @@ router.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
 
   let event;
   try {
-    if (webhookSecret || webhookSecretThin) {
-      // Try snapshot secret first, then thin payload secret
-      let verified = false;
-      for (const secret of [webhookSecret, webhookSecretThin].filter(Boolean)) {
-        try {
-          event = stripe.webhooks.constructEvent(req.body, sig, secret);
-          verified = true;
-          break;
-        } catch (_) {}
-      }
-      if (!verified) throw new Error('No matching webhook secret');
-    } else {
-      event = JSON.parse(req.body.toString());
-      console.warn('⚠️ Stripe webhook running without signature verification (dev mode)');
+    // SECURITY: Always require at least one webhook secret.
+    // Never accept unverified payloads — even in development.
+    if (!webhookSecret && !webhookSecretThin) {
+      console.error('❌ FATAL: No Stripe webhook secret configured. Set STRIPE_WEBHOOK_SECRET in environment variables.');
+      return res.status(500).send('Webhook not configured.');
     }
+
+    // Try each configured secret until one verifies
+    let verified = false;
+    for (const secret of [webhookSecret, webhookSecretThin].filter(Boolean)) {
+      try {
+        event = stripe.webhooks.constructEvent(req.body, sig, secret);
+        verified = true;
+        break;
+      } catch (_) {}
+    }
+    if (!verified) throw new Error('Webhook signature mismatch — possible forgery attempt');
   } catch (err) {
     console.error('❌ Webhook signature verification failed:', err.message);
     return res.status(400).send(`Webhook Error: ${err.message}`);
@@ -150,8 +152,18 @@ router.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
         const plan   = session.metadata?.plan;
         if (!userId) break;
 
+        // Verify the userId actually owns the Stripe customer (prevents metadata tampering)
+        const userCheck = await User.findById(userId).select('stripeCustomerId');
+        if (!userCheck) { console.error(`❌ Webhook: userId ${userId} not found`); break; }
+        if (userCheck.stripeCustomerId && userCheck.stripeCustomerId !== session.customer) {
+          console.error(`❌ Webhook: customerId mismatch for userId ${userId}`);
+          break;
+        }
+
         const update = { isPremium: true, premiumType: plan };
         if (session.subscription) update.stripeSubscriptionId = session.subscription;
+        // Persist the customer ID if not already set
+        if (!userCheck.stripeCustomerId && session.customer) update.stripeCustomerId = session.customer;
 
         await User.findByIdAndUpdate(userId, update);
         console.log(`✅ User ${userId} upgraded to ${plan}`);
