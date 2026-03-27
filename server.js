@@ -28,14 +28,28 @@ app.set('trust proxy', 1);
 // ── CORS ──────────────────────────────────────────────────────────────────────
 const allowedOrigins = (process.env.ALLOWED_ORIGINS || 'http://localhost:5173').split(',');
 
+// Προσθέτουμε πάντα τα Capacitor origins για το Android APK
+const CAPACITOR_ORIGINS = [
+  'capacitor://localhost',
+  'http://localhost',
+  'ionic://localhost',
+];
+
+const isOriginAllowed = (origin) => {
+  if (!origin) return true; // server-to-server ή native app χωρίς origin header
+  if (allowedOrigins.includes(origin)) return true;
+  if (CAPACITOR_ORIGINS.includes(origin)) return true;
+  return false;
+};
+
 const io = new Server(server, {
-  cors: { origin: allowedOrigins, methods: ['GET', 'POST'] },
+  cors: { origin: (origin, cb) => cb(null, isOriginAllowed(origin)), methods: ['GET', 'POST'] },
   transports: ['websocket', 'polling'],
 });
 
 app.use(cors({
   origin: (origin, callback) => {
-    if (!origin || allowedOrigins.includes(origin)) return callback(null, true);
+    if (isOriginAllowed(origin)) return callback(null, true);
     return callback(new Error('Not allowed by CORS'));
   },
 }));
