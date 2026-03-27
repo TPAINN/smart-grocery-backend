@@ -179,6 +179,15 @@ ${meatGuidelines}
    Το παράδειγμα δείχνει ΜΟΝΟ τη ΔΟΜΗ. Υπολόγισε ΔΙΚΑ ΣΟΥ macros από τα ΔΙΚΑ ΣΟΥ υλικά.
 ✅ Κάθε ημέρα: breakfast(~${bfKcal}kcal) + lunch(~${luKcal}kcal) + dinner(~${diKcal}kcal) = ~${dailyKcal}kcal
 
+📌 ΚΑΝΟΝΕΣ ΓΙΑ ΣΥΝΤΑΓΕΣ:
+   - Κάθε γεύμα έχει ΔΥΟ επιλογές: "breakfast" (Επιλογή Α) και "breakfast_alt" (Επιλογή Β) — ΤΕΛΕΙΩΣ ΔΙΑΦΟΡΕΤΙΚΑ υλικά
+   - breakfast/breakfast_alt: ΧΩΡΙΣ κρέας — αυγά, γιαούρτι, βρώμη, ξηροί καρποί, φρούτα, τυρί
+   - lunch/lunch_alt: ΚΥΡΙΟ ΓΕΥΜΑ — διαφορετικό κρέας σε κάθε επιλογή (πχ κοτόπουλο vs σολομός)
+   - dinner/dinner_alt: ΕΛΑΦΡΥ — σαλάτα, σούπα, αυγά, γιαούρτι, λαχανικά
+   - Κάθε συνταγή: ΠΛΗΡΕΙΣ οδηγίες μαγειρέματος step-by-step στο "description"
+   - Χρήσιμη συμβουλή μαγειρικής στο "prepTip"
+   - Ακριβή υλικά με γραμμάρια στο "ingredients" (πχ "150γρ στήθος κοτόπουλου")
+
 Δημιούργησε πλάνο ${days} ημερών.
 
 Επέστρεψε ΜΟΝΟ αυτό το JSON (ΧΩΡΙΣ markdown, ΧΩΡΙΣ κείμενο):
@@ -194,31 +203,52 @@ ${meatGuidelines}
       },
       "meals": {
         "breakfast": {
-          "name": "ΜΟΝΑΔΙΚΟ ΠΡΩΙΝΟ (όχι από άλλη ημέρα)",
-          "description": "Βήμα 1: [ετοιμασία]. Βήμα 2: [μαγείρεμα]. Βήμα 3: [σερβίρισμα].",
-          "prepTip": "ΣΥΓΚΕΚΡΙΜΕΝΗ συμβουλή τεχνικής/χρόνου/θερμοκρασίας",
+          "name": "ΠΡΩΙΝΟ ΕΠΙΛΟΓΗ Α — μοναδικό όνομα συνταγής",
+          "description": "Βήμα 1: [προετοιμασία υλικών]. Βήμα 2: [μαγείρεμα/ψήσιμο]. Βήμα 3: [σερβίρισμα και παρουσίαση].",
+          "prepTip": "Συγκεκριμένη συμβουλή θερμοκρασίας ή τεχνικής",
           "time": 10,
           "macros": { "kcal": ${bfKcal}, "protein": ${bfP}, "carbs": ${bfC}, "fat": ${bfF} },
-          "micronutrients": ["Βιταμίνη X"],
-          "ingredients": ["200γρ ΥΛΙΚΟ_Α", "30γρ ΥΛΙΚΟ_Β", "14γρ ελαιόλαδο (1 κ.σ.)"]
+          "ingredients": ["200γρ ΥΛΙΚΟ_Α", "30γρ ΥΛΙΚΟ_Β", "14γρ ελαιόλαδο"]
+        },
+        "breakfast_alt": {
+          "name": "ΠΡΩΙΝΟ ΕΠΙΛΟΓΗ Β — εντελώς διαφορετική συνταγή",
+          "description": "Βήμα 1: [προετοιμασία]. Βήμα 2: [παρασκευή]. Βήμα 3: [σερβίρισμα].",
+          "prepTip": "Χρήσιμη συμβουλή για αυτή τη συνταγή",
+          "time": 15,
+          "macros": { "kcal": ${bfKcal}, "protein": ${bfP}, "carbs": ${bfC}, "fat": ${bfF} },
+          "ingredients": ["ΔΙΑΦΟΡΕΤΙΚΟ_ΥΛΙΚΟ_Α", "ΔΙΑΦΟΡΕΤΙΚΟ_ΥΛΙΚΟ_Β"]
         },
         "lunch": {
-          "name": "ΚΥΡΙΟ ΓΕΥΜΑ ΜΕ ΠΡΩΤΕΪΝΗ",
-          "description": "Βήμα 1: [ετοιμασία]. Βήμα 2: [μαγείρεμα]. Βήμα 3: [σερβίρισμα].",
-          "prepTip": "ΣΥΓΚΕΚΡΙΜΕΝΗ συμβουλή τεχνικής/χρόνου/θερμοκρασίας",
+          "name": "ΜΕΣΗΜΕΡΙΑΝΟ ΕΠΙΛΟΓΗ Α — κυρίως πιάτο με πρωτεΐνη",
+          "description": "Βήμα 1: [μαρινάδα/ετοιμασία]. Βήμα 2: [μαγείρεμα ~X λεπτά]. Βήμα 3: [σερβίρισμα με συνοδευτικό].",
+          "prepTip": "Συμβουλή χρόνου ή θερμοκρασίας μαγειρέματος",
           "time": 35,
           "macros": { "kcal": ${luKcal}, "protein": ${luP}, "carbs": ${luC}, "fat": ${luF} },
-          "micronutrients": ["Βιταμίνη Y"],
-          "ingredients": ["200γρ ΥΛΙΚΟ_ΚΡΕΑΣ", "80γρ ΥΛΙΚΟ_ΑΜΥΛΟ", "28γρ ελαιόλαδο (2 κ.σ.)"]
+          "ingredients": ["200γρ ΚΡΕΑΣ/ΨΑΡΙ_Α", "80γρ ΑΜΥΛΟ", "λαχανικά", "28γρ ελαιόλαδο"]
+        },
+        "lunch_alt": {
+          "name": "ΜΕΣΗΜΕΡΙΑΝΟ ΕΠΙΛΟΓΗ Β — διαφορετική πρωτεΐνη",
+          "description": "Βήμα 1: [ετοιμασία]. Βήμα 2: [μαγείρεμα]. Βήμα 3: [σερβίρισμα].",
+          "prepTip": "Συμβουλή για αυτή τη συνταγή",
+          "time": 30,
+          "macros": { "kcal": ${luKcal}, "protein": ${luP}, "carbs": ${luC}, "fat": ${luF} },
+          "ingredients": ["200γρ ΔΙΑΦΟΡΕΤΙΚΗ_ΠΡΩΤΕΙΝΗ", "συνοδευτικό", "28γρ ελαιόλαδο"]
         },
         "dinner": {
-          "name": "ΕΛΑΦΡΥ ΒΡΑΔΙΝΟ",
-          "description": "Βήμα 1: [ετοιμασία]. Βήμα 2: [μαγείρεμα ή ανάμειξη]. Βήμα 3: [σερβίρισμα].",
-          "prepTip": "ΣΥΓΚΕΚΡΙΜΕΝΗ συμβουλή τεχνικής/χρόνου/θερμοκρασίας",
+          "name": "ΒΡΑΔΙΝΟ ΕΠΙΛΟΓΗ Α — ελαφρύ γεύμα",
+          "description": "Βήμα 1: [ετοιμασία]. Βήμα 2: [παρασκευή ή ανάμειξη]. Βήμα 3: [σερβίρισμα].",
+          "prepTip": "Συμβουλή για ελαφρύ βραδινό",
           "time": 10,
           "macros": { "kcal": ${diKcal}, "protein": ${diP}, "carbs": ${diC}, "fat": ${diF} },
-          "micronutrients": ["Ασβέστιο"],
-          "ingredients": ["200γρ ΥΛΙΚΟ_Α", "20γρ ΥΛΙΚΟ_Β", "14γρ ελαιόλαδο (1 κ.σ.)"]
+          "ingredients": ["200γρ ΥΛΙΚΟ_Α", "20γρ ΥΛΙΚΟ_Β"]
+        },
+        "dinner_alt": {
+          "name": "ΒΡΑΔΙΝΟ ΕΠΙΛΟΓΗ Β — εναλλακτικό ελαφρύ",
+          "description": "Βήμα 1: [ετοιμασία]. Βήμα 2: [παρασκευή]. Βήμα 3: [σερβίρισμα].",
+          "prepTip": "Συμβουλή για αυτή τη συνταγή",
+          "time": 12,
+          "macros": { "kcal": ${diKcal}, "protein": ${diP}, "carbs": ${diC}, "fat": ${diF} },
+          "ingredients": ["ΔΙΑΦΟΡΕΤΙΚΑ_ΥΛΙΚΑ_ΒΡΑΔΙΝΟΥ"]
         }
       },
       "dayMacros": { "kcal": ${dailyKcal}, "protein": ${dailyProteinG}, "carbs": ${dailyCarbsG}, "fat": ${dailyFatG} },
@@ -285,14 +315,17 @@ router.post('/', authMiddleware, async (req, res) => {
       ),
     }));
 
-    // Recompute dayMacros from corrected meal macros
+    // Recompute dayMacros from corrected meal macros — exclude _alt variants (they are alternatives, not additions)
     planData.plan = planData.plan.map(day => {
-      const meals = Object.values(day.meals).filter(Boolean);
+      const mainMeals = Object.entries(day.meals)
+        .filter(([k]) => !k.endsWith('_alt'))
+        .map(([, m]) => m)
+        .filter(Boolean);
       day.dayMacros = {
-        kcal:    meals.reduce((s, m) => s + (m.macros?.kcal    || 0), 0),
-        protein: meals.reduce((s, m) => s + (m.macros?.protein || 0), 0),
-        carbs:   meals.reduce((s, m) => s + (m.macros?.carbs   || 0), 0),
-        fat:     meals.reduce((s, m) => s + (m.macros?.fat     || 0), 0),
+        kcal:    mainMeals.reduce((s, m) => s + (m.macros?.kcal    || 0), 0),
+        protein: mainMeals.reduce((s, m) => s + (m.macros?.protein || 0), 0),
+        carbs:   mainMeals.reduce((s, m) => s + (m.macros?.carbs   || 0), 0),
+        fat:     mainMeals.reduce((s, m) => s + (m.macros?.fat     || 0), 0),
       };
       return day;
     });
