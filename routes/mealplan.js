@@ -2,20 +2,40 @@
 // Uses aiService.js → Gemini 2.0 Flash (primary) + Groq (fallback) + Bytez (emergency)
 const express = require('express');
 const router  = express.Router();
-const Product = require('../models/Product');
+const Product           = require('../models/Product');
+const Recipe            = require('../models/Recipe');
+const MealPlanFeedback  = require('../models/MealPlanFeedback');
 const { callAI } = require('../services/aiService');
 const authMiddleware = require('../middleware/authMiddleware');
 
 const normalize   = (t) => (t||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim();
 const escapeRegex = (s) => s.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
 
+// Strip leading numbers/units from an ingredient string so search is cleaner
+// e.g. "200γρ κοτόπουλο στήθος" → "κοτόπουλο στήθος"
+function stripQuantity(ingredient) {
+  return ingredient
+    .replace(/^\s*\d+[\d.,]*\s*(γρ|gr|g|κιλ|kg|ml|lt|λίτρ|τεμ|τεμάχ|κ\.σ\.|κ\.γ\.|φλ\.?|μεγάλ[οα]|μεσαί[οα])\s*/i, '')
+    .trim();
+}
+
 async function findBestPrice(ingredient) {
-  const words = normalize(ingredient).split(/\s+/).filter(w => w.length > 2);
+  const cleaned = stripQuantity(ingredient);
+  const words = normalize(cleaned).split(/\s+/).filter(w => w.length > 2);
   if (!words.length) return null;
+
+  // Try queries from most specific to least — stop on first hit
   const queries = [
-    words.map(w => ({ normalizedName: { $regex: escapeRegex(w), $options:'i' } })),
+    // All significant words must match
+    words.slice(0, 3).map(w => ({ normalizedName: { $regex: escapeRegex(w), $options:'i' } })),
+    // First two words
+    words.slice(0, 2).map(w => ({ normalizedName: { $regex: escapeRegex(w), $options:'i' } })),
+    // Just the first (most descriptive) word
     [{ normalizedName: { $regex: escapeRegex(words[0]), $options:'i' } }],
-  ];
+    // Second word as fallback (sometimes first is a quantity descriptor)
+    words[1] ? [{ normalizedName: { $regex: escapeRegex(words[1]), $options:'i' } }] : null,
+  ].filter(Boolean);
+
   for (const f of queries) {
     const r = await Product.find({ $and: f, price: { $gt: 0 } }).sort({ price:1 }).limit(3).lean();
     if (r.length) return { name:r[0].name, price:r[0].price, store:r[0].supermarket, unit:r[0].pricePerUnit||null };
@@ -426,6 +446,55 @@ router.post('/', authMiddleware, async (req, res) => {
   } catch(err) {
     console.error('❌ Meal Plan:', err.message);
     res.status(500).json({ message: `Σφάλμα AI: ${err.message}` });
+  }
+});
+
+// Save why the user asked for a new plan (feedback before regeneration)
+router.post('/feedback', authMiddleware, async (req, res) => {
+  try {
+    const { reason = 'other', freeText = '', choices = [] } = req.body;
+    const fb = await MealPlanFeedback.create({
+      userId: req.user._id || req.user.id,
+      reason,
+      freeText,
+      choices,
+    });
+    res.json({ ok: true, id: fb._id });
+  } catch (err) {
+    console.error('❌ Feedback save:', err.message);
+    res.status(500).json({ message: 'Αποτυχία αποθήκευσης feedback.' });
+  }
+});
+
+// Save which A/B option the user picked per meal slot
+router.post('/choices', authMiddleware, async (req, res) => {
+  try {
+    const { choices = [] } = req.body; // [{ day, mealType, chosen, mealName }]
+    if (!choices.length) return res.json({ ok: true });
+
+    // Upsert into the most recent feedback doc for this user, or create a bare one
+    const existing = await MealPlanFeedback
+      .findOne({ userId: req.user._id || req.user.id })
+      .sort({ createdAt: -1 });
+
+    if (existing) {
+      // Merge choices — overwrite same day+mealType, append new ones
+      const map = new Map(existing.choices.map(c => [`${c.day}_${c.mealType}`, c]));
+      choices.forEach(c => map.set(`${c.day}_${c.mealType}`, c));
+      existing.choices = [...map.values()];
+      await existing.save();
+      return res.json({ ok: true, id: existing._id });
+    }
+
+    const fb = await MealPlanFeedback.create({
+      userId: req.user._id || req.user.id,
+      reason: 'other',
+      choices,
+    });
+    res.json({ ok: true, id: fb._id });
+  } catch (err) {
+    console.error('❌ Choices save:', err.message);
+    res.status(500).json({ message: 'Αποτυχία αποθήκευσης επιλογών.' });
   }
 });
 
