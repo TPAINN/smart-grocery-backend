@@ -437,26 +437,23 @@ async function parseWpRecipe(page, url) {
     await page.goto(url, { waitUntil: 'networkidle2', timeout: 30000 });
 
     return page.evaluate(() => {
-        // ── Try JSON-LD first (WP Recipe plugins output this) ──────────────
-        const ld = [...document.querySelectorAll('script[type="application/ld+json"]')]
-            .map(s => { try { return JSON.parse(s.textContent); } catch { return null; } })
-            .filter(Boolean)
-            .find(l => l['@type'] === 'Recipe' || l['@graph']?.find?.(n => n['@type'] === 'Recipe'));
-
-        const recipe = ld?.['@type'] === 'Recipe' ? ld : ld?.['@graph']?.find(n => n['@type'] === 'Recipe');
         const clean = s => (s || '').replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ').trim();
 
-        const title = document.querySelector('h1')?.innerText?.trim();
-        const ogImg = document.querySelector('meta[property="og:image"]')?.content;
-        const postImg = document.querySelector('.wp-post-image, .post-thumbnail img, img[class*="attachment-large"]');
+        // ── Try JSON-LD first (sites with a recipe plugin emit this) ─────────
+        const allLd = [...document.querySelectorAll('script[type="application/ld+json"]')]
+            .map(s => { try { return JSON.parse(s.textContent); } catch { return null; } })
+            .filter(Boolean);
 
-        if (recipe) {
-            // Full data from JSON-LD
+        const recipe = allLd.find(l => l['@type'] === 'Recipe')
+            || allLd.flatMap(l => l['@graph'] || []).find(n => n['@type'] === 'Recipe');
+
+        if (recipe && (recipe.recipeIngredient?.length || recipe.recipeInstructions?.length)) {
             const nutri = recipe.nutrition || {};
+            const ogImg2 = document.querySelector('meta[property="og:image"]')?.content;
             return {
-                title:        recipe.name || title,
+                title:        clean(recipe.name) || document.querySelector('.entry-title')?.innerText?.trim(),
                 description:  clean(recipe.description).substring(0, 300),
-                image:        ogImg || (Array.isArray(recipe.image) ? recipe.image[0] : recipe.image?.url || recipe.image || postImg?.src || ''),
+                image:        ogImg2 || (Array.isArray(recipe.image) ? recipe.image[0] : recipe.image?.url || recipe.image || ''),
                 servings:     parseInt(recipe.recipeYield) || 4,
                 timeRaw:      recipe.totalTime || recipe.cookTime || recipe.prepTime,
                 ingredients:  (recipe.recipeIngredient || []).map(clean).filter(Boolean),
@@ -471,19 +468,78 @@ async function parseWpRecipe(page, url) {
             };
         }
 
-        // ── Generic WordPress fallback (no recipe plugin) ──────────────────
+        // ── Elementor / generic WP fallback ──────────────────────────────────
+        // Title: prefer .entry-title, fall back to document.title (strip site name)
+        const entryTitle = document.querySelector('.entry-title, .post-title, h1.elementor-heading-title')?.innerText?.trim();
+        const docTitle   = document.title.replace(/\s*[–—|-].*$/, '').trim();
+        const title      = entryTitle || docTitle;
         if (!title) return null;
-        const content = document.querySelector('.entry-content, .post-content, article .content');
-        const lines = (content?.innerText || '').split('\n').map(s => s.trim()).filter(s => s.length > 20);
 
-        return {
-            title,
-            description: lines[0] || '',
-            image: ogImg || postImg?.src || '',
-            servings: 4,
-            ingredients: [],
-            instructions: lines.slice(1, 12),
+        // Image: skip logos, favicons and tiny icons — grab first real content image
+        const imgs = [...document.querySelectorAll(
+            '.elementor-widget-image img, article img, .entry-content img, .post-thumbnail img'
+        )].filter(img => {
+            const w = img.naturalWidth || img.width;
+            const h = img.naturalHeight || img.height;
+            const src = img.src || '';
+            // skip logos / icons
+            if (src.includes('Logo') || src.includes('logo') || src.includes('favicon')) return false;
+            if (w && w < 150) return false;
+            return true;
+        });
+        const image = imgs[0]?.src
+            || document.querySelector('meta[property="og:image"], meta[name="twitter:image"]')?.content
+            || '';
+
+        // Content: collect all text-editor blocks
+        const blocks = [...document.querySelectorAll('.elementor-widget-text-editor .elementor-widget-container')]
+            .map(el => el.innerText?.trim())
+            .filter(t => t && t.length > 20);
+
+        // Combine blocks, then split on newlines for per-line processing
+        const fullText = blocks.join('\n\n');
+        const lines = fullText.split('\n').map(l => l.trim()).filter(Boolean);
+
+        // Detect section header lines (not actual content)
+        const isIngrHeader = l => {
+            const lo = l.toLowerCase().replace(/[^α-ωa-z]/g, '');
+            return lo.includes('χρειαστεις') || lo.includes('υλικα') || lo === 'ingredients';
         };
+        const isInstHeader = l => {
+            const lo = l.toLowerCase().replace(/[^α-ωa-z]/g, '');
+            return lo.includes('εκτελεση') || lo.includes('οδηγιες') || lo.includes('παρασκευη')
+                || lo.includes('βηματα') || lo.includes('τροπος') || lo === 'instructions';
+        };
+
+        let ingredients = [];
+        let instructions = [];
+        let description = '';
+
+        // Find section headers — match only short lines (< 50 chars) to avoid false
+        // positives where the description sentence contains the same word (e.g. "4+2 υλικά")
+        const ingrStart = lines.findIndex(l => l.length < 50 && isIngrHeader(l));
+        const instStart = lines.findIndex(l => l.length < 50 && isInstHeader(l));
+
+        if (ingrStart >= 0) {
+            description = lines.slice(0, ingrStart).join(' ').substring(0, 300);
+            const ingrEnd = instStart > ingrStart ? instStart : lines.length;
+            ingredients = lines.slice(ingrStart + 1, ingrEnd)
+                .filter(l => l.length > 1 && l.length < 100 && !isInstHeader(l));
+            instructions = instStart >= 0
+                ? lines.slice(instStart + 1).filter(l => l.length > 5)
+                : [];
+        } else {
+            // No section markers — first line is description, rest split by length heuristic
+            description = lines[0]?.substring(0, 300) || '';
+            const rest = lines.slice(1);
+            ingredients  = rest.filter(l => l.length < 80);
+            instructions = rest.filter(l => l.length >= 80);
+        }
+
+        // Need at least a title + some content
+        if (!ingredients.length && !instructions.length) return null;
+
+        return { title, description, image, servings: 4, ingredients, instructions };
     });
 }
 

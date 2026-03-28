@@ -18,8 +18,8 @@ router.get('/', async (req, res) => {
     const sort     = req.query.sort     || 'newest'; // newest, popular, quick, protein
     const hasMacros = req.query.hasMacros === 'true'; // filter to only recipes with nutrition data
 
-    // Build filter
-    const filter = {};
+    // Build filter — skip recipes that were saved without any ingredients
+    const filter = { 'ingredients.0': { $exists: true } };
     if (category)  filter.category  = category;
     if (cuisine)   filter.cuisine   = cuisine;
     if (tag)       filter.tags      = tag;
