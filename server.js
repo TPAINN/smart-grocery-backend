@@ -96,6 +96,8 @@ const recipeRoutes    = require('./routes/recipes');
 const chatRoutes      = require('./routes/chat');
 const mealPlanRoutes  = require('./routes/mealplan');
 const favoritesRoutes = require('./routes/favorites');
+const barcodeRoutes   = require('./routes/barcode');
+const mealsRoutes     = require('./routes/meals');
 
 // Wire io to auth so notify-friend can emit socket events
 if (typeof authRoutes.setIO === 'function') authRoutes.setIO(io);
@@ -109,6 +111,8 @@ app.use('/api/chat',      chatRoutes);
 app.use('/api/meal-plan', mealPlanRoutes);
 app.use('/api/favorites', favoritesRoutes);
 app.use('/api/stripe',    stripeRoutes);
+app.use('/api/barcode',   barcodeRoutes);  // USDA + Edamam fallback for barcode scanner
+app.use('/api/meals',     mealsRoutes);    // TheMealDB proxy (Greek + Mediterranean recipes)
 
 // ── Rate limiter for expensive AI endpoints ───────────────────────────────────
 const aiLimiter = rateLimit({
