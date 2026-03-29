@@ -406,7 +406,7 @@ router.get('/greek', async (req, res) => {
     const meals = listData?.meals || [];
 
     const detailed = await Promise.all(
-      meals.slice(0, 20).map(async m => {
+      meals.slice(0, 30).map(async m => {
         try {
           const { data } = await axios.get(`${BASE}/lookup.php`, {
             params: { i: m.idMeal }, timeout: 6000,
@@ -449,7 +449,8 @@ router.get('/mediterranean', async (req, res) => {
       )
     );
     const flat    = allLists.flat();
-    const sampled = areas.flatMap(a => flat.filter(m => m.area === a).slice(0, 4));
+    // Sample up to 8 from each area for richer pagination
+    const sampled = areas.flatMap(a => flat.filter(m => m.area === a).slice(0, 8));
 
     const detailed = await Promise.all(
       sampled.map(async m => {
