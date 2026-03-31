@@ -3,6 +3,7 @@ const express = require('express');
 const router = express.Router();
 const SavedList = require('../models/SavedList');
 const auth = require('../middleware/authMiddleware');
+const { loadUserAccess } = require('../services/userAccess');
 
 // 1. ΛΗΨΗ ΟΛΩΝ ΤΩΝ ΛΙΣΤΩΝ ΤΟΥ ΧΡΗΣΤΗ
 router.get('/', auth, async (req, res) => {
@@ -18,10 +19,15 @@ router.get('/', auth, async (req, res) => {
 router.post('/', auth, async (req, res) => {
     try {
         const { title, items } = req.body;
+        const access = await loadUserAccess(req.userId);
+
+        if (!access) {
+            return res.status(404).json({ message: 'Χρήστης δεν βρέθηκε.' });
+        }
         
         // Έλεγχος ορίων!
         const userListsCount = await SavedList.countDocuments({ userId: req.userId });
-        const limit = req.user.isPremium ? 10 : 2; // 10 για Premium, 2 για Free
+        const limit = access.isPremium ? 10 : 2; // 10 για Premium/trial, 2 για Free
         
         if (userListsCount >= limit) {
             return res.status(403).json({ 

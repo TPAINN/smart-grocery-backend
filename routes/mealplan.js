@@ -7,6 +7,7 @@ const Recipe            = require('../models/Recipe');
 const MealPlanFeedback  = require('../models/MealPlanFeedback');
 const { callAI } = require('../services/aiService');
 const authMiddleware = require('../middleware/authMiddleware');
+const requirePremiumAccess = require('../middleware/requirePremiumAccess');
 
 const normalize   = (t) => (t||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim();
 const escapeRegex = (s) => s.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
@@ -288,7 +289,7 @@ ${meatGuidelines}
 }`;
 }
 
-router.post('/', authMiddleware, async (req, res) => {
+router.post('/', authMiddleware, requirePremiumAccess, async (req, res) => {
   const {
     persons=2, budget=80, restrictions=[], goal='balanced', days=7,
     tdee=null, zigzag=null, gender='male', age=30, weight=75, height=175, activityLevel='moderate',
@@ -450,7 +451,7 @@ router.post('/', authMiddleware, async (req, res) => {
 });
 
 // Save why the user asked for a new plan (feedback before regeneration)
-router.post('/feedback', authMiddleware, async (req, res) => {
+router.post('/feedback', authMiddleware, requirePremiumAccess, async (req, res) => {
   try {
     const { reason = 'other', freeText = '', choices = [] } = req.body;
     const fb = await MealPlanFeedback.create({
@@ -467,7 +468,7 @@ router.post('/feedback', authMiddleware, async (req, res) => {
 });
 
 // Save which A/B option the user picked per meal slot
-router.post('/choices', authMiddleware, async (req, res) => {
+router.post('/choices', authMiddleware, requirePremiumAccess, async (req, res) => {
   try {
     const { choices = [] } = req.body; // [{ day, mealType, chosen, mealName }]
     if (!choices.length) return res.json({ ok: true });
