@@ -117,8 +117,9 @@ router.post('/register', strictLimiter, async (req, res) => {
 
     const hashedPassword = await bcrypt.hash(password, 10);
     const newUser = await User.create({ name: name.trim(), email: cleanEmail, password: hashedPassword });
-    const token = jwt.sign({ id: newUser._id, isPremium: newUser.isPremium }, JWT_SECRET, { expiresIn: '30d' });
-    res.status(201).json({ token, user: safeUser(newUser) });
+    const safe = safeUser(newUser);
+    const token = jwt.sign({ id: newUser._id, isPremium: safe.isPremium }, JWT_SECRET, { expiresIn: '30d' });
+    res.status(201).json({ token, user: safe });
   } catch (err) {
     console.error('Register error:', err);
     res.status(500).json({ message: 'Σφάλμα κατά την εγγραφή.' });
@@ -135,8 +136,9 @@ router.post('/login', strictLimiter, async (req, res) => {
 
     // Ensure legacy users (created before shareKey field) get a persistent key
     const userWithKey = await ensureShareKey(user);
-    const token = jwt.sign({ id: userWithKey._id, isPremium: userWithKey.isPremium }, JWT_SECRET, { expiresIn: '30d' });
-    res.json({ token, user: safeUser(userWithKey) });
+    const safe = safeUser(userWithKey);
+    const token = jwt.sign({ id: userWithKey._id, isPremium: safe.isPremium }, JWT_SECRET, { expiresIn: '30d' });
+    res.json({ token, user: safe });
   } catch (err) {
     res.status(500).json({ message: 'Σφάλμα κατά τη σύνδεση.' });
   }

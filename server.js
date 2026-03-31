@@ -98,6 +98,13 @@ const mealPlanRoutes  = require('./routes/mealplan');
 const favoritesRoutes = require('./routes/favorites');
 const barcodeRoutes   = require('./routes/barcode');
 const mealsRoutes     = require('./routes/meals');
+const aiMealPlanLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 15,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { message: 'Πολλά αιτήματα AI. Δοκίμασε ξανά σε 1 ώρα.' },
+});
 
 // Wire io to auth so notify-friend can emit socket events
 if (typeof authRoutes.setIO === 'function') authRoutes.setIO(io);
@@ -108,7 +115,7 @@ app.use('/api/prices',    pricesRoutes);
 app.use('/api/lists',     listRoutes);
 app.use('/api/recipes',   recipeRoutes);
 app.use('/api/chat',      chatRoutes);
-app.use('/api/meal-plan', mealPlanRoutes);
+app.use('/api/meal-plan', aiMealPlanLimiter, mealPlanRoutes);
 app.use('/api/favorites', favoritesRoutes);
 app.use('/api/stripe',    stripeRoutes);
 app.use('/api/barcode',   barcodeRoutes);  // USDA + Edamam fallback for barcode scanner
@@ -122,7 +129,6 @@ const aiLimiter = rateLimit({
   legacyHeaders: false,
   message: { message: 'Πολλά αιτήματα AI. Δοκίμασε ξανά σε 1 ώρα.' },
 });
-app.use('/api/meal-plan', aiLimiter);
 
 // ── Health & Admin ────────────────────────────────────────────────────────────
 app.get('/api/health',  (req, res) => res.status(200).send('OK'));
