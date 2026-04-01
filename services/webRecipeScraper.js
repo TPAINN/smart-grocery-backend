@@ -500,13 +500,18 @@ async function parseWpRecipe(page, url) {
         const fullText = blocks.join('\n\n');
         const lines = fullText.split('\n').map(l => l.trim()).filter(Boolean);
 
+        // Normalise: lowercase + strip diacritics + keep only letters
+        const norm = s => s.toLowerCase()
+            .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+            .replace(/[^a-zα-ω]/g, '');
+
         // Detect section header lines (not actual content)
         const isIngrHeader = l => {
-            const lo = l.toLowerCase().replace(/[^α-ωa-z]/g, '');
+            const lo = norm(l);
             return lo.includes('χρειαστεις') || lo.includes('υλικα') || lo === 'ingredients';
         };
         const isInstHeader = l => {
-            const lo = l.toLowerCase().replace(/[^α-ωa-z]/g, '');
+            const lo = norm(l);
             return lo.includes('εκτελεση') || lo.includes('οδηγιες') || lo.includes('παρασκευη')
                 || lo.includes('βηματα') || lo.includes('τροπος') || lo === 'instructions';
         };
@@ -605,6 +610,7 @@ async function scrapeWebRecipes(siteKey = 'all') {
             }
 
             let added = 0, skipped = 0, errors = 0;
+            const seenTitles = new Set(); // dedup within this run
 
             for (const url of links) {
                 try {
@@ -621,6 +627,15 @@ async function scrapeWebRecipes(siteKey = 'all') {
                         errors++;
                         continue;
                     }
+
+                    const titleKey = cleanStr(raw.title).toLowerCase().trim();
+                    // Skip duplicate titles within this scrape run
+                    if (seenTitles.has(titleKey)) { skipped++; continue; }
+                    // Skip if title already exists in DB for this source
+                    if (await Recipe.findOne({ title: { $regex: `^${titleKey.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, $options: 'i' }, sourceApi: key })) {
+                        skipped++; seenTitles.add(titleKey); continue;
+                    }
+                    seenTitles.add(titleKey);
 
                     const time       = parseDuration(raw.timeRaw) || raw.time || null;
                     const difficulty = getDifficulty(time, raw.ingredients?.length || 0);
