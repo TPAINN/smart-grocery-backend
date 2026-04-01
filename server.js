@@ -17,6 +17,26 @@ const Message = require('./models/Message');
 const { startCronJobs, runWebScraper, getScrapingStatus } = require('./services/scraper');
 const { populateRecipes } = require('./services/recipeScraper');
 
+// ── In-memory cache (reduces MongoDB load) ───────────────────────────────────
+const NodeCache = require('node-cache');
+const apiCache  = new NodeCache({ stdTTL: 300, checkperiod: 60 }); // 5 min default TTL
+
+function cacheMiddleware(ttl = 300) {
+  return (req, res, next) => {
+    // Only cache GET requests; skip if query has auth-specific params
+    if (req.method !== 'GET') return next();
+    const key = req.originalUrl;
+    const hit = apiCache.get(key);
+    if (hit !== undefined) return res.json(hit);
+    const originalJson = res.json.bind(res);
+    res.json = (body) => {
+      if (res.statusCode === 200) apiCache.set(key, body, ttl);
+      return originalJson(body);
+    };
+    next();
+  };
+}
+
 // ── App ───────────────────────────────────────────────────────────────────────
 const app    = express();
 const server = http.createServer(app);
@@ -98,6 +118,7 @@ const mealPlanRoutes  = require('./routes/mealplan');
 const favoritesRoutes = require('./routes/favorites');
 const barcodeRoutes   = require('./routes/barcode');
 const mealsRoutes     = require('./routes/meals');
+const pushRoutes      = require('./routes/push');
 const aiMealPlanLimiter = rateLimit({
   windowMs: 60 * 60 * 1000,
   max: 15,
@@ -111,15 +132,16 @@ if (typeof authRoutes.setIO === 'function') authRoutes.setIO(io);
 
 // Το strictLimiter για register/login ορίζεται μέσα στο routes/auth.js
 app.use('/api/auth',      generalAuthLimiter, authRoutes);
-app.use('/api/prices',    pricesRoutes);
+app.use('/api/prices',    cacheMiddleware(300),  pricesRoutes);  // 5 min cache
 app.use('/api/lists',     listRoutes);
-app.use('/api/recipes',   recipeRoutes);
+app.use('/api/recipes',   cacheMiddleware(600),  recipeRoutes);  // 10 min cache
 app.use('/api/chat',      chatRoutes);
 app.use('/api/meal-plan', aiMealPlanLimiter, mealPlanRoutes);
 app.use('/api/favorites', favoritesRoutes);
 app.use('/api/stripe',    stripeRoutes);
 app.use('/api/barcode',   barcodeRoutes);  // USDA + Edamam fallback for barcode scanner
 app.use('/api/meals',     mealsRoutes);    // TheMealDB proxy (Greek + Mediterranean recipes)
+app.use('/api/push',      pushRoutes);     // Web Push subscriptions
 
 // ── Rate limiter for expensive AI endpoints ───────────────────────────────────
 const aiLimiter = rateLimit({
@@ -137,14 +159,21 @@ app.get('/api/status',  (req, res) => res.json({ isScraping: getScrapingStatus()
 app.get('/api/force-scrape', (req, res) => {
   if (!process.env.CRON_SECRET || req.query.secret !== process.env.CRON_SECRET)
     return res.status(403).json({ message: 'Απαγορεύεται.' });
-  runWebScraper();
+  runWebScraper().then(() => {
+    // Bust prices cache so next request fetches fresh data
+    apiCache.flushAll();
+    console.log('🗑️  API cache flushed after scrape');
+  }).catch(() => {});
   res.send('🚀 Scraper started!');
 });
 
 app.get('/api/force-recipes', (req, res) => {
   if (!process.env.CRON_SECRET || req.query.secret !== process.env.CRON_SECRET)
     return res.status(403).json({ message: 'Απαγορεύεται.' });
-  populateRecipes();
+  populateRecipes().then(() => {
+    apiCache.del(key => key.startsWith('/api/recipes'));
+    console.log('🗑️  Recipes cache flushed');
+  }).catch(() => {});
   res.send('👨‍🍳 Recipe scraper started!');
 });
 
@@ -212,6 +241,26 @@ io.on('connection', (socket) => {
     } catch (err) {
       console.error('❌ Message save error:', err);
     }
+  });
+
+  // ── Typing indicators ────────────────────────────────────────────────────
+  // data = { shareKey, senderName, friendShareKeys[] }
+  socket.on('typing_start', (data) => {
+    if (!data?.shareKey || !data?.senderName) return;
+    (data.friendShareKeys || []).forEach(fKey => {
+      if (fKey !== data.shareKey) {
+        socket.to(fKey).emit('friend_typing', { senderName: data.senderName, shareKey: data.shareKey });
+      }
+    });
+  });
+
+  socket.on('typing_stop', (data) => {
+    if (!data?.shareKey) return;
+    (data.friendShareKeys || []).forEach(fKey => {
+      if (fKey !== data.shareKey) {
+        socket.to(fKey).emit('friend_stopped_typing', { shareKey: data.shareKey });
+      }
+    });
   });
 
   // ── Friend added notification ─────────────────────────────────────────────

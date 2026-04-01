@@ -30,6 +30,7 @@
     "jsonwebtoken": "^9.0.3",
     "mongodb": "^7.1.0",
     "mongoose": "^9.2.1",
+    "node-cache": "^5.1.2",
     "node-cron": "^4.2.1",
     "nodemailer": "^8.0.1",
     "pdf-parse": "^2.4.5",
@@ -40,6 +41,7 @@
     "socket.io": "^4.8.3",
     "socket.io-client": "^4.8.3",
     "stripe": "^20.4.1",
-    "user-agents": "^1.1.669"
+    "user-agents": "^1.1.669",
+    "web-push": "^3.6.7"
   }
 }
