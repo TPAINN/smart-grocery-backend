@@ -7,6 +7,7 @@ const StealthPlugin = require('puppeteer-extra-plugin-stealth');
 puppeteer.use(StealthPlugin());
 
 const Recipe = require('../models/Recipe');
+const { estimateMacros } = require('./macroEstimator');
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -642,6 +643,24 @@ async function scrapeWebRecipes(siteKey = 'all') {
                     const category   = mapCategory([raw.title, ...(raw.keywords || [])]);
                     const tags       = buildTags({ ...raw, time });
 
+                    // ── AI macro estimation for recipes with missing nutrition ──
+                    let macros = {
+                        calories: raw.calories || null,
+                        protein:  raw.protein  || null,
+                        carbs:    raw.carbs    || null,
+                        fat:      raw.fat      || null,
+                        fiber:    raw.fiber    || null,
+                    };
+                    if (!macros.calories && raw.ingredients?.length > 0) {
+                        try {
+                            const est = await estimateMacros(raw.ingredients, raw.servings || 4);
+                            if (est) {
+                                macros = { ...macros, ...est };
+                                console.log(`  🧮 AI macros: ${est.calories}kcal P${est.protein}g C${est.carbs}g F${est.fat}g`);
+                            }
+                        } catch { /* skip — non-critical */ }
+                    }
+
                     await Recipe.create({
                         title:        cleanStr(raw.title),
                         description:  cleanStr(raw.description || ''),
@@ -649,12 +668,12 @@ async function scrapeWebRecipes(siteKey = 'all') {
                         servings:     raw.servings    || 4,
                         time,
                         difficulty,
-                        calories:     raw.calories || null,
-                        protein:      raw.protein  || null,
-                        carbs:        raw.carbs    || null,
-                        fat:          raw.fat      || null,
-                        fiber:        raw.fiber    || null,
-                        isHealthy:    (raw.calories || 999) < 600,
+                        calories:     macros.calories,
+                        protein:      macros.protein,
+                        carbs:        macros.carbs,
+                        fat:          macros.fat,
+                        fiber:        macros.fiber,
+                        isHealthy:    (macros.calories || 999) < 600,
                         ingredients:  (raw.ingredients  || []).map(cleanStr).filter(s => s.length > 1),
                         instructions: (raw.instructions || []).map(s => cleanStr(s).replace(/^\d+[\.\)]\s*/, '')).filter(s => s.length > 5),
                         tags,

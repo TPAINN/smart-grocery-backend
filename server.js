@@ -16,6 +16,8 @@ const Message = require('./models/Message');
 // ── Services ──────────────────────────────────────────────────────────────────
 const { startCronJobs, runWebScraper, getScrapingStatus } = require('./services/scraper');
 const { populateRecipes } = require('./services/recipeScraper');
+const { estimateMacros }  = require('./services/macroEstimator');
+const Recipe              = require('./models/Recipe');
 
 // ── In-memory cache (reduces MongoDB load) ───────────────────────────────────
 const NodeCache = require('node-cache');
@@ -175,6 +177,31 @@ app.get('/api/force-recipes', (req, res) => {
     console.log('🗑️  Recipes cache flushed');
   }).catch(() => {});
   res.send('👨‍🍳 Recipe scraper started!');
+});
+
+// Backfill AI macros for existing recipes that are missing nutrition data
+app.get('/api/backfill-macros', async (req, res) => {
+  if (!process.env.CRON_SECRET || req.query.secret !== process.env.CRON_SECRET)
+    return res.status(403).json({ message: 'Απαγορεύεται.' });
+
+  res.send('🧮 Macro backfill started — check server logs.');
+
+  (async () => {
+    const recipes = await Recipe.find({ calories: null, ingredients: { $exists: true, $not: { $size: 0 } } }).lean();
+    console.log(`🧮 [backfill-macros] Found ${recipes.length} recipes without calories`);
+    let updated = 0;
+    for (const r of recipes) {
+      try {
+        const est = await estimateMacros(r.ingredients, r.servings || 4);
+        if (est?.calories) {
+          await Recipe.updateOne({ _id: r._id }, { $set: est });
+          updated++;
+          console.log(`  ✅ ${r.title?.substring(0, 50)} → ${est.calories}kcal`);
+        }
+      } catch { /* skip individual failures */ }
+    }
+    console.log(`🧮 [backfill-macros] Done — updated ${updated}/${recipes.length}`);
+  })().catch(err => console.error('backfill-macros error:', err));
 });
 
 app.get('/.well-known/appspecific/com.chrome.devtools.json', (req, res) => res.json({}));
