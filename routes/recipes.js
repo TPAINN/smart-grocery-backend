@@ -25,11 +25,15 @@ router.get('/', async (req, res) => {
     if (source)    filter.sourceApi = source;
     if (hasMacros) filter.calories  = { $ne: null };
     if (search) {
-      filter.$or = [
-        { title:       { $regex: search, $options: 'i' } },
-        { ingredients: { $regex: search, $options: 'i' } },
-        { cuisine:     { $regex: search, $options: 'i' } },
-      ];
+      // Prefer full-text search (weighted, faster) — fall back to regex for short queries
+      if (search.length >= 2) {
+        filter.$text = { $search: search };
+      } else {
+        filter.$or = [
+          { title:       { $regex: search, $options: 'i' } },
+          { ingredients: { $regex: search, $options: 'i' } },
+        ];
+      }
     }
 
     let sortObj = { createdAt: -1 };
@@ -37,9 +41,12 @@ router.get('/', async (req, res) => {
     if (sort === 'protein')  sortObj = { protein: -1 };
     if (sort === 'calories') sortObj = { calories: 1 };
     if (sort === 'popular')  sortObj = { protein: -1, calories: 1 };
+    // When full-text searching, rank by relevance score first
+    if (filter.$text) sortObj = { score: { $meta: 'textScore' }, ...sortObj };
 
     const [recipes, total] = await Promise.all([
-      Recipe.find(filter).sort(sortObj).skip((page - 1) * limit).limit(limit).lean(),
+      Recipe.find(filter, filter.$text ? { score: { $meta: 'textScore' } } : {})
+        .sort(sortObj).skip((page - 1) * limit).limit(limit).lean(),
       Recipe.countDocuments(filter),
     ]);
 

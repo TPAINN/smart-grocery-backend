@@ -284,4 +284,71 @@ router.get('/search', async (req, res) => {
   }
 });
 
+// ── POST /api/prices/substitute — AI smart substitution ──────────────────────
+// Body: { productName, currentStore, currentPrice }
+// Returns: up to 3 cheaper alternatives from the DB + AI reasoning
+router.post('/substitute', async (req, res) => {
+  try {
+    const { productName, currentStore = '', currentPrice = 0 } = req.body;
+    if (!productName) return res.status(400).json({ message: 'Δεν δόθηκε προϊόν.' });
+
+    const norm = productName.toLowerCase().replace(/[αάΑΆ]/g,'α').replace(/[εέΕΈ]/g,'ε')
+      .replace(/[ηήΗΉ]/g,'η').replace(/[ιίΙΊϊΐ]/g,'ι').replace(/[οόΟΌ]/g,'ο')
+      .replace(/[υύΥΎϋΰ]/g,'υ').replace(/[ωώΩΏ]/g,'ω').trim();
+
+    // Find similar products across ALL supermarkets
+    const candidates = await Product.find({
+      normalizedName: { $regex: norm.split(' ')[0], $options: 'i' },
+    }).sort({ price: 1 }).limit(30).lean();
+
+    // Filter to different stores than current, or cheaper at same store
+    const alternatives = candidates
+      .filter(p => p.price > 0 && (
+        p.supermarket.toLowerCase() !== currentStore.toLowerCase() ||
+        p.price < currentPrice
+      ))
+      .slice(0, 6);
+
+    if (alternatives.length === 0) {
+      return res.json({ alternatives: [], message: 'Δεν βρέθηκαν εναλλακτικά.' });
+    }
+
+    // Ask AI to pick the top 3 and explain
+    let aiSuggestions = null;
+    try {
+      const { callAI } = require('../services/aiService');
+      const systemPrompt = `Είσαι ειδικός σε εξοικονόμηση χρημάτων στα σούπερ μάρκετ. Επέλεξε τα 3 καλύτερα εναλλακτικά προϊόντα και εξήγησε σύντομα γιατί. Απάντησε ΜΟΝΟ με JSON.`;
+      const userPrompt = `Προϊόν: "${productName}" στο ${currentStore || 'άγνωστο'} για €${currentPrice.toFixed(2)}\n\nΕναλλακτικά:\n${alternatives.map((p,i) => `${i+1}. ${p.name} (${p.supermarket}) €${p.price.toFixed(2)}`).join('\n')}\n\nΕπέλεξε τα 3 καλύτερα και για κάθε ένα δώσε: {"name":"...","supermarket":"...","price":..,"reason":"...σύντομη εξήγηση στα ελληνικά..."}. Επέστρεψε: {"top3":[...]}`;
+      aiSuggestions = await callAI(systemPrompt, userPrompt);
+    } catch { /* AI optional — fallback to raw results */ }
+
+    res.json({
+      alternatives: alternatives.slice(0, 3),
+      aiTop3: aiSuggestions?.top3 || null,
+    });
+  } catch (err) {
+    console.error('substitute error:', err.message);
+    res.status(500).json({ message: 'Σφάλμα εναλλακτικών.' });
+  }
+});
+
+// ── GET /api/prices/top-offers — top N sale items for weekly summary ──────────
+router.get('/top-offers', async (req, res) => {
+  try {
+    const limit = Math.min(50, parseInt(req.query.limit) || 20);
+    const store = req.query.store || '';
+    const filter = { isOnSale: true, price: { $gt: 0 } };
+    if (store) filter.supermarket = { $regex: store, $options: 'i' };
+
+    const offers = await Product.find(filter)
+      .sort({ discountPercent: -1, dateScraped: -1 })
+      .limit(limit)
+      .lean();
+
+    res.json(offers);
+  } catch (err) {
+    res.status(500).json({ message: 'Σφάλμα top offers.' });
+  }
+});
+
 module.exports = router;

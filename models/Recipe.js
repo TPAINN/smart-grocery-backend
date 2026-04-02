@@ -41,6 +41,10 @@ const recipeSchema = new mongoose.Schema({
 recipeSchema.index({ category: 1, createdAt: -1 });
 recipeSchema.index({ tags: 1 });
 recipeSchema.index({ sourceId: 1 }, { unique: true, sparse: true });
-recipeSchema.index({ title: 'text', cuisine: 'text' });
+// Full-text search index — supports Greek, typo-tolerant via $text operator
+recipeSchema.index(
+  { title: 'text', ingredients: 'text', cuisine: 'text', description: 'text' },
+  { weights: { title: 10, ingredients: 5, cuisine: 3, description: 1 }, name: 'recipe_fulltext' }
+);
 
 module.exports = mongoose.model('Recipe', recipeSchema);
