@@ -7,7 +7,8 @@
     "start": "node server.js",
     "scrape:all": "node runAll.js",
     "clear:products": "node clearDB.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "test:scraping": "node tests/scraping-regression.js"
   },
   "keywords": [],
   "author": "",

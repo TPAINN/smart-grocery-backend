@@ -12,6 +12,7 @@ const productSchema = new mongoose.Schema({
   isOnSale: { type: Boolean, default: false },
   is1plus1: { type: Boolean, default: false },
   discountPercent: { type: String, default: null },
+  imageUrl: { type: String, default: null },
   dateScraped: { type: Date, default: Date.now }
 });
 
