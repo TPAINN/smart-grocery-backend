@@ -118,9 +118,10 @@ const recipeRoutes    = require('./routes/recipes');
 const chatRoutes      = require('./routes/chat');
 const mealPlanRoutes  = require('./routes/mealplan');
 const favoritesRoutes = require('./routes/favorites');
-const barcodeRoutes   = require('./routes/barcode');
-const mealsRoutes     = require('./routes/meals');
-const pushRoutes      = require('./routes/push');
+const barcodeRoutes      = require('./routes/barcode');
+const mealsRoutes        = require('./routes/meals');
+const pushRoutes         = require('./routes/push');
+const plateScannerRoutes = require('./routes/platescanner');
 const aiMealPlanLimiter = rateLimit({
   windowMs: 60 * 60 * 1000,
   max: 15,
@@ -142,8 +143,9 @@ app.use('/api/meal-plan', aiMealPlanLimiter, mealPlanRoutes);
 app.use('/api/favorites', favoritesRoutes);
 app.use('/api/stripe',    stripeRoutes);
 app.use('/api/barcode',   barcodeRoutes);  // USDA + Edamam fallback for barcode scanner
-app.use('/api/meals',     mealsRoutes);    // TheMealDB proxy (Greek + Mediterranean recipes)
-app.use('/api/push',      pushRoutes);     // Web Push subscriptions
+app.use('/api/meals',          mealsRoutes);         // TheMealDB proxy (Greek + Mediterranean recipes)
+app.use('/api/push',           pushRoutes);          // Web Push subscriptions
+app.use('/api/plate-scanner',  plateScannerRoutes);  // AI Plate Macro Scanner (Vision AI)
 
 // ── Rate limiter for expensive AI endpoints ───────────────────────────────────
 const aiLimiter = rateLimit({

@@ -120,6 +120,65 @@ function parseJSON(raw, provider) {
   throw new Error(`${provider} JSON parse failed`);
 }
 
+// ── Vision: Claude (image + text) ─────────────────────────────────────────────
+async function callVisionClaude(systemPrompt, userPrompt, imageBase64, mediaType) {
+  const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+  tick('claude');
+  const message = await client.messages.create({
+    model: 'claude-haiku-4-5-20251001',
+    max_tokens: 4096,
+    system: systemPrompt,
+    messages: [{
+      role: 'user',
+      content: [
+        { type: 'image', source: { type: 'base64', media_type: mediaType, data: imageBase64 } },
+        { type: 'text', text: userPrompt },
+      ],
+    }],
+    temperature: 0.3,
+  });
+  const raw = message.content[0]?.text || '{}';
+  return parseJSON(raw, 'Claude Vision');
+}
+
+// ── Vision: Gemini (image + text) ─────────────────────────────────────────────
+async function callVisionGemini(systemPrompt, userPrompt, imageBase64, mediaType) {
+  const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+  const model = genAI.getGenerativeModel({
+    model: 'gemini-2.0-flash',
+    systemInstruction: systemPrompt,
+    generationConfig: { responseMimeType: 'application/json', temperature: 0.3, maxOutputTokens: 4096 },
+  });
+  tick('gemini');
+  const result = await model.generateContent([
+    { inlineData: { data: imageBase64, mimeType: mediaType } },
+    userPrompt,
+  ]);
+  const raw = result.response.text();
+  return parseJSON(raw, 'Gemini Vision');
+}
+
+// ── Vision: auto-selects Claude → Gemini ─────────────────────────────────────
+async function callVisionAI(systemPrompt, userPrompt, imageBase64, mediaType = 'image/jpeg') {
+  const providers = [
+    { name: 'Claude Vision',  key: 'ANTHROPIC_API_KEY', tracker: 'claude', fn: callVisionClaude },
+    { name: 'Gemini Vision',  key: 'GEMINI_API_KEY',    tracker: 'gemini', fn: callVisionGemini },
+  ];
+  const errors = [];
+  for (const p of providers) {
+    if (!process.env[p.key]) continue;
+    if (!canUse(p.tracker)) { errors.push(`${p.name}: rate-limited`); continue; }
+    try {
+      console.log(`👁️ [Vision AI] Provider: ${p.name}`);
+      return await p.fn(systemPrompt, userPrompt, imageBase64, mediaType);
+    } catch (err) {
+      console.warn(`⚠️ [Vision AI] ${p.name} failed: ${err.message}`);
+      errors.push(`${p.name}: ${err.message}`);
+    }
+  }
+  throw new Error(`Vision AI unavailable. ${errors.join(' | ')}`);
+}
+
 // ── Main exported function — auto-selects provider ────────────────────────────
 async function callAI(systemPrompt, userPrompt) {
   const providers = [
@@ -147,4 +206,4 @@ async function callAI(systemPrompt, userPrompt) {
   throw new Error(`Κανένα AI provider δεν είναι διαθέσιμο. ${errors.join(' | ')}`);
 }
 
-module.exports = { callAI };
+module.exports = { callAI, callVisionAI };
