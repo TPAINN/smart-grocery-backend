@@ -47,6 +47,15 @@ const server = http.createServer(app);
 // Χωρίς αυτό, το rate-limit βλέπει την IP του proxy σαν IP ΟΛΩΝ των χρηστών
 app.set('trust proxy', 1);
 
+// ── Security headers ──────────────────────────────────────────────────────────
+app.use((req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('X-XSS-Protection', '1; mode=block');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  next();
+});
+
 // ── CORS ──────────────────────────────────────────────────────────────────────
 const allowedOrigins = (process.env.ALLOWED_ORIGINS || 'http://localhost:5173').split(',');
 
@@ -83,7 +92,15 @@ app.use('/api/stripe/webhook', express.raw({ type: 'application/json' }), (req, 
   next();
 });
 
-app.use(express.json());
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+
+// ── Gzip compression ──────────────────────────────────────────────────────────
+try {
+  const compression = require('compression');
+  app.use(compression({ threshold: 1024, level: 6 }));
+  console.log('✅ Gzip compression enabled');
+} catch { /* compression not installed — skip */ }
 
 // ── Rate Limiting ─────────────────────────────────────────────────────────────
 
@@ -96,14 +113,24 @@ const generalAuthLimiter = rateLimit({
   message: { message: 'Πολλές προσπάθειες. Δοκίμασε ξανά σε 15 λεπτά.' },
 });
 
-// ── Logging ───────────────────────────────────────────────────────────────────
+// ── Request timing (only log slow requests ≥500ms) ────────────────────────────
 app.use((req, res, next) => {
-  console.log(`🌍 [${req.method}] ${req.url}`);
+  const start = Date.now();
+  res.on('finish', () => {
+    const ms = Date.now() - start;
+    if (ms >= 500 || res.statusCode >= 400) {
+      console.log(`${res.statusCode >= 400 ? '⚠️' : '🐢'} [${req.method}] ${req.url} — ${ms}ms ${res.statusCode}`);
+    }
+  });
   next();
 });
 
 // ── MongoDB ───────────────────────────────────────────────────────────────────
-mongoose.connect(process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/smart_grocery')
+mongoose.connect(process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/smart_grocery', {
+  maxPoolSize: 10,
+  serverSelectionTimeoutMS: 5000,
+  socketTimeoutMS: 45000,
+})
   .then(() => console.log('📦 MongoDB connected!'))
   .catch(err => console.error('❌ MongoDB error:', err));
 
@@ -147,15 +174,6 @@ app.use('/api/meals',          mealsRoutes);         // TheMealDB proxy (Greek +
 app.use('/api/push',           pushRoutes);          // Web Push subscriptions
 app.use('/api/plate-scanner',  plateScannerRoutes);  // AI Plate Macro Scanner (Vision AI)
 
-// ── Rate limiter for expensive AI endpoints ───────────────────────────────────
-const aiLimiter = rateLimit({
-  windowMs: 60 * 60 * 1000, // 1 ώρα
-  max: 15,                   // max 15 AI requests/ώρα per IP
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { message: 'Πολλά αιτήματα AI. Δοκίμασε ξανά σε 1 ώρα.' },
-});
-
 // ── Health & Admin ────────────────────────────────────────────────────────────
 app.get('/api/health',  (req, res) => res.status(200).send('OK'));
 app.get('/api/status',  (req, res) => res.json({ isScraping: getScrapingStatus() }));
@@ -175,7 +193,8 @@ app.get('/api/force-recipes', (req, res) => {
   if (!process.env.CRON_SECRET || req.query.secret !== process.env.CRON_SECRET)
     return res.status(403).json({ message: 'Απαγορεύεται.' });
   populateRecipes().then(() => {
-    apiCache.del(key => key.startsWith('/api/recipes'));
+    const recipeKeys = apiCache.keys().filter(k => k.startsWith('/api/recipes'));
+    if (recipeKeys.length) apiCache.del(recipeKeys);
     console.log('🗑️  Recipes cache flushed');
   }).catch(() => {});
   res.send('👨‍🍳 Recipe scraper started!');

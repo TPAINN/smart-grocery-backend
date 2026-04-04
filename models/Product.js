@@ -14,6 +14,13 @@ const productSchema = new mongoose.Schema({
   discountPercent: { type: String, default: null },
   imageUrl: { type: String, default: null },
   dateScraped: { type: Date, default: Date.now }
-});
+}, { timestamps: false });
+
+// Text index on name for full-text search (default_language 'none' for Greek support)
+productSchema.index({ name: 'text' }, { default_language: 'none' });
+// Compound index for store-filtered name queries
+productSchema.index({ name: 1, supermarket: 1 });
+// Compound index for store + price sort queries
+productSchema.index({ supermarket: 1, price: 1 });
 
 module.exports = mongoose.model('Product', productSchema);
