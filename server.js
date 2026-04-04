@@ -57,7 +57,7 @@ app.use((req, res, next) => {
 });
 
 // ── CORS ──────────────────────────────────────────────────────────────────────
-const allowedOrigins = (process.env.ALLOWED_ORIGINS || 'http://localhost:5173').split(',');
+const allowedOrigins = (process.env.ALLOWED_ORIGINS || 'http://localhost:5173,http://localhost:5174,http://localhost:5175').split(',');
 
 // Προσθέτουμε πάντα τα Capacitor origins για το Android APK
 const CAPACITOR_ORIGINS = [
@@ -78,12 +78,16 @@ const io = new Server(server, {
   transports: ['websocket', 'polling'],
 });
 
-app.use(cors({
-  origin: (origin, callback) => {
-    if (isOriginAllowed(origin)) return callback(null, true);
-    return callback(new Error('Not allowed by CORS'));
-  },
-}));
+// Respond with the allowed origin or false (never throw — throwing causes 500 on pre-flight)
+const corsOptions = {
+  origin: (origin, callback) => callback(null, isOriginAllowed(origin) ? origin : false),
+  credentials: true,
+  optionsSuccessStatus: 200,
+};
+
+// Handle pre-flight OPTIONS for ALL routes before any other middleware
+app.options('*', cors(corsOptions));
+app.use(cors(corsOptions));
 
 // ── Stripe webhook needs raw body — mount BEFORE express.json() ────────────
 const stripeRoutes = require('./routes/stripe');
