@@ -104,6 +104,11 @@ router.post('/register', strictLimiter, async (req, res) => {
     if (!name?.trim() || !email?.trim() || !password)
       return res.status(400).json({ message: 'Συμπλήρωσε όλα τα πεδία.' });
 
+    if (!name || name.trim().length < 3 || name.trim().length > 30)
+      return res.status(400).json({ message: 'Το username πρέπει να είναι 3-30 χαρακτήρες.' });
+    if (!password || password.length < 6)
+      return res.status(400).json({ message: 'Ο κωδικός πρέπει να είναι τουλάχιστον 6 χαρακτήρες.' });
+
     const cleanEmail = email.toLowerCase().trim();
     if (!isValidEmailFormat(cleanEmail))
       return res.status(400).json({ message: 'Μη έγκυρη μορφή email.' });
@@ -112,7 +117,7 @@ router.post('/register', strictLimiter, async (req, res) => {
     if (!domainExists)
       return res.status(400).json({ message: 'Το email δεν φαίνεται να υπάρχει.' });
 
-    if (await User.findOne({ email: cleanEmail }))
+    if (await User.findOne({ email: cleanEmail }).lean())
       return res.status(400).json({ message: 'Το email χρησιμοποιείται ήδη.' });
 
     const hashedPassword = await bcrypt.hash(password, 10);
@@ -152,7 +157,7 @@ router.get('/by-key/:shareKey', async (req, res) => {
       return res.status(400).json({ message: 'Μη έγκυρο Share Key.' });
 
     const user = await User.findOne({ shareKey: { $regex: new RegExp(`^${key}$`, 'i') } })
-      .select('name shareKey');
+      .select('name shareKey').lean();
     if (!user) return res.status(404).json({ message: 'Χρήστης δεν βρέθηκε.' });
 
     res.json({ name: user.name, username: user.name, shareKey: user.shareKey });
@@ -175,7 +180,7 @@ router.get('/search', authMiddleware, async (req, res) => {
           { email: { $regex: q, $options: 'i' } },
         ]},
       ]
-    }).select('name shareKey _id').limit(10);
+    }).select('name shareKey _id').limit(10).lean();
 
     res.json({ users: users.map(u => ({ _id: u._id, name: u.name, username: u.name, shareKey: u.shareKey })) });
   } catch (err) {
@@ -194,7 +199,7 @@ router.post('/add-friend', authMiddleware, async (req, res) => {
     if (!targetShareKey)
       return res.status(400).json({ message: 'Απαιτείται targetShareKey.' });
 
-    const me = await User.findById(req.userId).select('name shareKey friends');
+    const me = await User.findById(req.userId).select('name shareKey friends').lean();
     if (!me) return res.status(404).json({ message: 'Χρήστης δεν βρέθηκε.' });
 
     const key = targetShareKey.trim().toUpperCase();
@@ -203,7 +208,7 @@ router.post('/add-friend', authMiddleware, async (req, res) => {
 
     const target = await User.findOne({
       shareKey: { $regex: new RegExp(`^${key}$`, 'i') }
-    }).select('name shareKey friends');
+    }).select('name shareKey friends').lean();
     if (!target) return res.status(404).json({ message: 'Χρήστης δεν βρέθηκε.' });
 
     // Add B to A's friends (if not already there)
@@ -245,7 +250,7 @@ router.post('/add-friend', authMiddleware, async (req, res) => {
 // ── 6. REMOVE FRIEND (bidirectional) ─────────────────────────────────────────
 router.delete('/remove-friend/:targetShareKey', authMiddleware, async (req, res) => {
   try {
-    const me = await User.findById(req.userId).select('shareKey name');
+    const me = await User.findById(req.userId).select('shareKey name').lean();
     if (!me) return res.status(404).json({ message: 'Χρήστης δεν βρέθηκε.' });
 
     const key = req.params.targetShareKey?.trim().toUpperCase();
@@ -268,7 +273,7 @@ router.delete('/remove-friend/:targetShareKey', authMiddleware, async (req, res)
 // ── 7. GET MY FRIENDS (called on app load) ────────────────────────────────────
 router.get('/friends', authMiddleware, async (req, res) => {
   try {
-    const user = await User.findById(req.userId).select('friends');
+    const user = await User.findById(req.userId).select('friends').lean();
     if (!user) return res.status(404).json({ message: 'Χρήστης δεν βρέθηκε.' });
     res.json({ friends: user.friends || [] });
   } catch (err) {
@@ -279,7 +284,7 @@ router.get('/friends', authMiddleware, async (req, res) => {
 // ── 8. GET ME ─────────────────────────────────────────────────────────────────
 router.get('/me', authMiddleware, async (req, res) => {
   try {
-    const user = await User.findById(req.userId).select('-password');
+    const user = await User.findById(req.userId).select('-password').lean();
     if (!user) return res.status(404).json({ message: 'Χρήστης δεν βρέθηκε.' });
     res.json({ user: safeUser(user) });
   } catch (err) {
@@ -292,7 +297,7 @@ router.get('/me', authMiddleware, async (req, res) => {
 // from the DB (bypasses the cached JWT value)
 router.get('/refresh-premium', authMiddleware, async (req, res) => {
   try {
-    const rawUser = await User.findById(req.userId).select('-password');
+    const rawUser = await User.findById(req.userId).select('-password').lean();
     if (!rawUser) return res.status(404).json({ message: 'Χρήστης δεν βρέθηκε.' });
 
     // Ensure this user has a persistent shareKey in DB (fixes legacy accounts)
@@ -315,8 +320,8 @@ router.post('/notify-friend', authMiddleware, async (req, res) => {
   const { targetShareKey } = req.body;
   if (!targetShareKey) return res.status(400).json({ message: 'Απαιτείται targetShareKey.' });
   try {
-    const me     = await User.findById(req.userId).select('name shareKey friends');
-    const target = await User.findOne({ shareKey: { $regex: new RegExp(`^${targetShareKey.trim().toUpperCase()}$`, 'i') } }).select('name shareKey friends');
+    const me     = await User.findById(req.userId).select('name shareKey friends').lean();
+    const target = await User.findOne({ shareKey: { $regex: new RegExp(`^${targetShareKey.trim().toUpperCase()}$`, 'i') } }).select('name shareKey friends').lean();
     if (!target) return res.status(404).json({ message: 'Χρήστης δεν βρέθηκε.' });
 
     if (!target.friends.some(f => f.shareKey === me.shareKey)) {

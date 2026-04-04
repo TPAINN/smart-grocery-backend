@@ -218,10 +218,11 @@ function expandQuery(rawQuery) {
 // ── GET /search — Smart Search ────────────────────────────────────────────────
 router.get('/search', async (req, res) => {
   try {
-    const rawQuery = (req.query.q || '').trim();
+    const q        = (req.query.q || '').trim().slice(0, 100); // max 100 chars
+    const rawQuery = q;
     const store    = req.query.store;
 
-    if (rawQuery.length < 2) return res.json([]);
+    if (q.length < 2) return res.json([]);
 
     const storeFilter = (store && store !== 'Όλα') ? { supermarket: store } : {};
 
@@ -238,6 +239,7 @@ router.get('/search', async (req, res) => {
       }));
 
       const candidates = await Product.find({ $and: regexFilters, ...storeFilter })
+        .select('name price supermarket imageUrl category normalizedName')
         .sort({ price: 1 })
         .limit(100)
         .lean();
@@ -258,6 +260,7 @@ router.get('/search', async (req, res) => {
           normalizedName: { $regex: escapeRegex(term), $options: 'i' }
         }));
         const fallback = await Product.find({ $or: orFilters, ...storeFilter })
+          .select('name price supermarket imageUrl category normalizedName')
           .sort({ price: 1 })
           .limit(100)
           .lean();
@@ -274,10 +277,18 @@ router.get('/search', async (req, res) => {
     const scored = allCandidates
       .map(p => ({ ...p, _score: scoreMultiWord(p.name, p._terms || [normalize(rawQuery)]) }))
       .filter(p => p._score > 5)
-      .sort((a, b) => b._score !== a._score ? b._score - a._score : (a.price || 0) - (b.price || 0))
-      .slice(0, 20);
+      .sort((a, b) => b._score !== a._score ? b._score - a._score : (a.price || 0) - (b.price || 0));
 
-    res.json(scored.map(({ _score, _terms, ...p }) => p));
+    // Deduplicate: keep lowest price per (name, supermarket) pair
+    const seen = new Map();
+    for (const r of scored) {
+      const key = `${r.name}__${r.supermarket}`;
+      const existing = seen.get(key);
+      if (!existing || r.price < existing.price) seen.set(key, r);
+    }
+    const deduped = Array.from(seen.values()).slice(0, 40);
+
+    res.json(deduped.map(({ _score, _terms, ...p }) => p));
   } catch (error) {
     console.error('Σφάλμα στην Αναζήτηση:', error);
     res.status(500).json({ message: 'Σφάλμα διακομιστή' });

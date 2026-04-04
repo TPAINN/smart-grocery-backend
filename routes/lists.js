@@ -8,7 +8,7 @@ const { loadUserAccess } = require('../services/userAccess');
 // 1. ΛΗΨΗ ΟΛΩΝ ΤΩΝ ΛΙΣΤΩΝ ΤΟΥ ΧΡΗΣΤΗ
 router.get('/', auth, async (req, res) => {
     try {
-        const lists = await SavedList.find({ userId: req.userId }).sort({ createdAt: -1 }); // Οι πιο πρόσφατες πρώτα
+        const lists = await SavedList.find({ userId: req.userId }).sort({ createdAt: -1 }).lean(); // Οι πιο πρόσφατες πρώτα
         res.json(lists);
     } catch (err) {
         res.status(500).json({ message: 'Σφάλμα κατά την ανάκτηση των λιστών.' });
