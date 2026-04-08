@@ -46,7 +46,7 @@ router.get('/', async (req, res) => {
 
     const [recipes, total] = await Promise.all([
       Recipe.find(filter, filter.$text ? { score: { $meta: 'textScore' } } : {})
-        .select('title thumbnail supermarket category calories ingredients servings tags')
+        .select('-__v')
         .sort(sortObj).skip((page - 1) * limit).limit(limit).lean(),
       Recipe.countDocuments(filter),
     ]);
