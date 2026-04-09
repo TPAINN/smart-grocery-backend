@@ -228,9 +228,19 @@ async function populateRecipes(options = {}) {
     // ── Step 2: Process each recipe ──────────────────────────────────────
     for (const r of results) {
       try {
-        // Skip if already exists
+        // Upsert: if recipe exists, update image/nutrition in case it changed
         const exists = await Recipe.findOne({ sourceId: r.id });
         if (exists) {
+          // Update image and nutrition if they were missing
+          const updates = {};
+          if (!exists.image && r.image)       updates.image = r.image;
+          if (!exists.calories && nutrients['calories']) updates.calories = nutrients['calories'];
+          if (!exists.protein  && nutrients['protein'])  updates.protein  = nutrients['protein'];
+          if (!exists.carbs    && nutrients['carbohydrates']) updates.carbs = nutrients['carbohydrates'];
+          if (!exists.fat      && nutrients['fat'])      updates.fat      = nutrients['fat'];
+          if (Object.keys(updates).length > 0) {
+            await Recipe.updateOne({ sourceId: r.id }, { $set: updates });
+          }
           skipped++;
           continue;
         }
