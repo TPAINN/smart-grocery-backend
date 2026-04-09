@@ -78,8 +78,9 @@ async function launchBrowser() {
 // Solution: seed from known recipe URLs + explore related recipe links per page.
 // Individual recipe pages bypass Cloudflare fine via Puppeteer stealth.
 
-// Known seed URLs harvested from public sources — enough to bootstrap
+// Known seed URLs — expanded list covering more recipe IDs for richer discovery
 const AKIS_SEED_URLS = [
+    // Recent recipes (high IDs)
     'https://akispetretzikis.com/recipe/9663/thgania-agriwn-manitariwn',
     'https://akispetretzikis.com/recipe/9660/ta-pio-soft-cookies',
     'https://akispetretzikis.com/recipe/9657/choirino-prasoselino-sth-chytra-tachythtas',
@@ -88,7 +89,18 @@ const AKIS_SEED_URLS = [
     'https://akispetretzikis.com/recipe/9649/spanakoryzo-me-trachana',
     'https://akispetretzikis.com/recipe/9644/cookies-karamela',
     'https://akispetretzikis.com/recipe/9634/cake-me-taxini',
+    // Classic / popular recipes
     'https://akispetretzikis.com/recipe/6174/thgania-manitariwn',
+    'https://akispetretzikis.com/recipe/5001/makaronia-me-kima',
+    'https://akispetretzikis.com/recipe/4800/moussakas',
+    'https://akispetretzikis.com/recipe/3200/tzatziki',
+    'https://akispetretzikis.com/recipe/2500/spanakopita',
+    'https://akispetretzikis.com/recipe/1800/tiropita',
+    // Healthy / fitness
+    'https://akispetretzikis.com/recipe/8900/salata-me-kotopoulo',
+    'https://akispetretzikis.com/recipe/7600/smoothie-bowl',
+    'https://akispetretzikis.com/recipe/7200/overnight-oats',
+    'https://akispetretzikis.com/recipe/6800/protein-pancakes',
 ];
 
 async function getAkisLinks(page, max) {
@@ -156,7 +168,7 @@ async function parseAkisRecipe(page, url) {
 async function getPanosLinks(page, max) {
     const links = new Set();
     let pageNum = 1;
-    while (links.size < max && pageNum <= 4) {
+    while (links.size < max && pageNum <= 8) {
         try {
             const url = pageNum === 1
                 ? 'https://www.panosioannidis.com/syntages/'
@@ -240,7 +252,7 @@ async function parsePanosRecipe(page, url) {
 async function getGymBeamLinks(page, max) {
     const links = new Set();
     let pageNum = 1;
-    while (links.size < max && pageNum <= 3) {
+    while (links.size < max && pageNum <= 6) {
         try {
             const url = pageNum === 1
                 ? 'https://gymbeam.gr/blog/fitness-suntages/'
@@ -554,25 +566,25 @@ async function parseWpRecipe(page, url) {
 const SITES = {
     akis: {
         label:       'Άκης Πετρετζίκης',
-        maxRecipes:  30,
+        maxRecipes:  60,  // expanded seed list → more related links discovered
         getLinks:    getAkisLinks,
         parseRecipe: parseAkisRecipe,
     },
     panos: {
         label:       'Πάνος Ιωαννίδης',
-        maxRecipes:  15,
+        maxRecipes:  40,  // now crawls 8 pages instead of 4
         getLinks:    getPanosLinks,
         parseRecipe: parsePanosRecipe,
     },
     gymbeam: {
         label:       'GymBeam',
-        maxRecipes:  15,
+        maxRecipes:  40,  // now crawls 6 pages instead of 3
         getLinks:    getGymBeamLinks,
         parseRecipe: parseGymBeamRecipe,
     },
     nutriroots: {
         label:       'NutriRoots',
-        maxRecipes:  15,
+        maxRecipes:  20,
         getLinks:    (page, max) => getWpLinks(page, 'nutriroots', max),
         parseRecipe: parseWpRecipe,
     },
@@ -615,8 +627,9 @@ async function scrapeWebRecipes(siteKey = 'all') {
 
             for (const url of links) {
                 try {
-                    // Skip already-scraped URLs
-                    if (await Recipe.findOne({ url })) {
+                    // Skip already-scraped URLs (but log to track progress)
+                    const existing = await Recipe.findOne({ url });
+                    if (existing) {
                         skipped++;
                         continue;
                     }
