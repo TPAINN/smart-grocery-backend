@@ -86,7 +86,8 @@ const corsOptions = {
 };
 
 // Handle pre-flight OPTIONS for ALL routes before any other middleware
-app.options('*', cors(corsOptions));
+// Note: bare '*' breaks path-to-regexp v8+ — use regex instead
+app.options(/.*/, cors(corsOptions));
 app.use(cors(corsOptions));
 
 // ── Stripe webhook needs raw body — mount BEFORE express.json() ────────────
