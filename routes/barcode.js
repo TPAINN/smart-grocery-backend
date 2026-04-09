@@ -10,6 +10,8 @@
 const express = require('express');
 const router  = express.Router();
 const axios   = require('axios');
+const authMiddleware     = require('../middleware/authMiddleware');
+const requirePremiumAccess = require('../middleware/requirePremiumAccess');
 
 // ── USDA FoodData Central ─────────────────────────────────────────────────────
 // Register a free key at https://fdc.nal.usda.gov/api-key-signup.html
@@ -172,9 +174,8 @@ async function lookupEdamam(barcode) {
 }
 
 // ── Route ─────────────────────────────────────────────────────────────────────
-// GET /api/barcode/:barcode
-// Frontend calls this only after both OFF databases return nothing.
-router.get('/:barcode', async (req, res) => {
+// GET /api/barcode/:barcode — Premium feature: requires auth + active plan
+router.get('/:barcode', authMiddleware, requirePremiumAccess, async (req, res) => {
   const { barcode } = req.params;
 
   if (!barcode || !/^\d{6,14}$/.test(barcode)) {
