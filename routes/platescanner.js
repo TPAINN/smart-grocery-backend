@@ -4,6 +4,8 @@
 const express = require('express');
 const rateLimit = require('express-rate-limit');
 const { callVisionAI } = require('../services/aiService');
+const authMiddleware     = require('../middleware/authMiddleware');
+const requirePremiumAccess = require('../middleware/requirePremiumAccess');
 
 const router = express.Router();
 
@@ -169,8 +171,8 @@ const buildAdaptivePrompt = (learningContext = {}) => {
   return notes.join('\n');
 };
 
-// POST /api/plate-scanner/scan
-router.post('/scan', scanLimiter, async (req, res) => {
+// POST /api/plate-scanner/scan — Premium feature: requires auth + active plan
+router.post('/scan', authMiddleware, requirePremiumAccess, scanLimiter, async (req, res) => {
   try {
     const { image, mediaType = 'image/jpeg', learningContext = {} } = req.body;
 
