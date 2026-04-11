@@ -39,12 +39,13 @@ const LIDL_URLS = [
 ];
 
 const STORE_CONFIGS = {
-    'ΑΒ Βασιλόπουλος': { 
-        card: '[data-testid="product-block"]', 
-        name: '[data-testid="product-name"], [data-testid="product-block-name-link"]', 
-        price: '[data-testid="product-block-price"]', 
-        oldPrice: '[data-testid="product-block-old-price"]', 
-        promo: '[data-testid="tag-promo-label"]' 
+    'ΑΒ Βασιλόπουλος': {
+        card: '[data-testid="product-block"]',
+        name: '[data-testid="product-name"], [data-testid="product-block-name-link"]',
+        price: '[data-testid="product-block-price"]',
+        oldPrice: '[data-testid="product-block-old-price"]',
+        promo: '[data-testid="tag-promo-label"]',
+        img: 'img[data-testid="product-image"], picture img, img[src*="images"], img[data-src]',
     },
     'Σκλαβενίτης': { card: '.product, li.item, .product-list > div, .product-card', name: 'h4 a, h4, .product__title a, .product__name a', price: '.price, [data-price]', oldPrice: 'del, .price.old', promo: '.offer-span, .text-minus' },
     'Κρητικός': {
@@ -54,10 +55,10 @@ const STORE_CONFIGS = {
         oldPrice: '[class*="ProductListItem_beginPrice"]',
         promo: '[class*="ProductListItem_badge"]'
     },
-    'MyMarket': { card: 'article, .product, .product-item, .product-card, .products-listing > div, div.relative.flex.flex-col', name: '.line-clamp-2', oldPrice: '.diagonal-line', promo: '.product-note-tag', nextBtn: 'a[rel="next"],[data-mkey="next"]' },
-    'Μασούτης': { card: '.product-item, .col-product', name: '.productTitle', price: '.price', promo: '.pDscntPercent', loader: '.lds-spinner' },
+    'MyMarket': { card: 'article, .product, .product-item, .product-card, [class*="ProductCard"], div.relative.flex.flex-col', name: '.line-clamp-2, [class*="product-name"], h3', oldPrice: '.diagonal-line', promo: '.product-note-tag', nextBtn: 'a[rel="next"],[data-mkey="next"]', img: 'img[data-nimg], img[loading="lazy"], picture img, img' },
+    'Μασούτης': { card: '.product-item, .col-product', name: '.productTitle', price: '.price', promo: '.pDscntPercent', loader: '.lds-spinner', img: '.productImage img, .product-image img, img' },
     'Market In': { card: '.product-grid-box, .product', name: '.product-ttl', price: '.new-price', oldPrice: '.old-price', promo: '.disc-value', nextBtn: 'span.material-icons, a.next' },
-    'Γαλαξίας': { card: '.product-card, .col', name: '.text-black-i, h2', price: 'span[style*="rgb(2, 88, 165)"]', promo: '.bg-secondary.text-primary' },
+    'Γαλαξίας': { card: '.product-card, .col', name: '.text-black-i, h2', price: 'span[style*="rgb(2, 88, 165)"], .current-price, .price-label, [class*="price"]:not([class*="old"]):not([class*="base"])', promo: '.bg-secondary.text-primary', img: 'img[src*="galaxias"], img[data-src*="galaxias"], img[alt], img' },
     'Lidl': {
         card: '.odsc-tile, .product-grid-box',
         name: '.product-grid-box__title',
@@ -199,9 +200,22 @@ const extractDataInBrowser = (storeName, config) => {
             });
         }
         
-        // Εικόνα
-        const imgEl = card.querySelector('img');
-        if (imgEl) imgUrl = imgEl.src || imgEl.getAttribute('data-src');
+        // Εικόνα — try config.img selector, fallback to any img, check lazy-load attrs
+        const imgEl = (config.img ? card.querySelector(config.img) : null) || card.querySelector('img');
+        if (imgEl) {
+            const src = imgEl.getAttribute('src') || '';
+            imgUrl = (!src || src.startsWith('data:image/gif') || src.startsWith('data:') || src.length < 10
+                ? (imgEl.getAttribute('data-src') ||
+                   imgEl.getAttribute('data-lazy-src') ||
+                   imgEl.getAttribute('data-original') ||
+                   imgEl.getAttribute('data-lazy') ||
+                   (imgEl.getAttribute('srcset') || '').split(',')[0].trim().split(' ')[0] ||
+                   (imgEl.getAttribute('data-srcset') || '').split(',')[0].trim().split(' ')[0] ||
+                   src)
+                : src) || null;
+            // Final filter for invalid URLs
+            if (imgUrl && imgUrl.length < 10) imgUrl = null;
+        }
 
         // LIDL-specific: validity date + gift/discount text
         let validityDate = null;
@@ -311,17 +325,33 @@ async function scrapeGalaxias(page, storeName, config, allFound) {
     }
 }
 async function scrapeMyMarket(page, storeName, config, allFound) {
+    // MyMarket is a Next.js/React app — wait for hydration before extracting
+    try {
+        await page.waitForSelector(config.card, { timeout: 20000 });
+    } catch(e) {
+        // If card selector times out, try scrolling to trigger render
+        for (let i = 0; i < 5; i++) { await page.keyboard.press('PageDown'); await sleep(400); }
+    }
+    await sleep(1500); // extra wait for price elements to render
+
     let keepGoing = true; let fails = 0;
     while (keepGoing && fails < 10) {
+        // Scroll to trigger lazy-rendering of remaining products
+        for (let i = 0; i < 10; i++) { await page.keyboard.press('PageDown'); await sleep(80); }
+        await sleep(600);
+
         const products = await page.evaluate(extractDataInBrowser, storeName, config);
-        products.forEach(p => allFound.set(p.normalizedName, p));
+        let addedNew = false;
+        products.forEach(p => { if (!allFound.has(p.normalizedName)) { allFound.set(p.normalizedName, p); addedNew = true; } });
+        if (addedNew) fails = 0; else fails++;
+
         const hasNext = await page.evaluate((sel) => {
             const btn = document.querySelector(sel);
             if (btn && !btn.disabled && btn.offsetParent !== null) { btn.click(); return true; }
             return false;
         }, config.nextBtn);
-        if (hasNext) { await sleep(2500); fails = 0; } 
-        else { fails++; keepGoing = false; }
+        if (hasNext) { await sleep(3000); fails = 0; }
+        else if (!addedNew) { fails++; if (fails >= 3) keepGoing = false; }
     }
 }
 async function scrapeMarketIn(page, storeName, config, allFound) {

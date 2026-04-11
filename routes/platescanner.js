@@ -205,8 +205,12 @@ router.post('/scan', authMiddleware, requirePremiumAccess, scanLimiter, async (r
       },
     });
   } catch (err) {
-    console.error('[PlateScan]', err.message);
-    res.status(500).json({ error: 'Σφάλμα ανάλυσης. Παρακαλώ δοκίμασε ξανά.' });
+    console.error('[PlateScan] Error:', err.message, err.stack?.split('\n')[1]);
+    const isDev = process.env.NODE_ENV !== 'production';
+    res.status(500).json({
+      error: 'Σφάλμα ανάλυσης. Παρακαλώ δοκίμασε ξανά.',
+      ...(isDev && { detail: err.message }),
+    });
   }
 });
 

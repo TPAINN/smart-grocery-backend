@@ -32,7 +32,7 @@ async function callClaude(systemPrompt, userPrompt) {
   tick('claude');
   const message = await client.messages.create({
     model: 'claude-haiku-4-5-20251001',
-    max_tokens: 16000,
+    max_tokens: 8096,
     system: systemPrompt,
     messages: [{ role: 'user', content: userPrompt }],
     temperature: 0.4,
@@ -158,15 +158,39 @@ async function callVisionGemini(systemPrompt, userPrompt, imageBase64, mediaType
   return parseJSON(raw, 'Gemini Vision');
 }
 
-// ── Vision: auto-selects Claude → Gemini ─────────────────────────────────────
+// ── Vision: Groq LLaMA (fallback) ─────────────────────────────────────────────
+async function callVisionGroq(systemPrompt, userPrompt, imageBase64, mediaType) {
+  const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
+  tick('groq');
+  const completion = await groq.chat.completions.create({
+    model: 'meta-llama/llama-4-scout-17b-16e-instruct',
+    messages: [
+      { role: 'system', content: systemPrompt + '\n\nIMPORTANT: Respond ONLY with valid JSON. No markdown, no explanation.' },
+      {
+        role: 'user',
+        content: [
+          { type: 'image_url', image_url: { url: `data:${mediaType};base64,${imageBase64}` } },
+          { type: 'text', text: userPrompt },
+        ],
+      },
+    ],
+    temperature: 0.3,
+    max_tokens: 4096,
+  });
+  const raw = completion.choices[0]?.message?.content || '{}';
+  return parseJSON(raw, 'Groq Vision');
+}
+
+// ── Vision: auto-selects Claude → Gemini → Groq ──────────────────────────────
 async function callVisionAI(systemPrompt, userPrompt, imageBase64, mediaType = 'image/jpeg') {
   const providers = [
-    { name: 'Claude Vision',  key: 'ANTHROPIC_API_KEY', tracker: 'claude', fn: callVisionClaude },
-    { name: 'Gemini Vision',  key: 'GEMINI_API_KEY',    tracker: 'gemini', fn: callVisionGemini },
+    { name: 'Claude Vision', key: 'ANTHROPIC_API_KEY', tracker: 'claude', fn: callVisionClaude },
+    { name: 'Gemini Vision', key: 'GEMINI_API_KEY',    tracker: 'gemini', fn: callVisionGemini },
+    { name: 'Groq Vision',   key: 'GROQ_API_KEY',      tracker: 'groq',   fn: callVisionGroq  },
   ];
   const errors = [];
   for (const p of providers) {
-    if (!process.env[p.key]) continue;
+    if (!process.env[p.key]) { errors.push(`${p.name}: key not set`); continue; }
     if (!canUse(p.tracker)) { errors.push(`${p.name}: rate-limited`); continue; }
     try {
       console.log(`👁️ [Vision AI] Provider: ${p.name}`);
