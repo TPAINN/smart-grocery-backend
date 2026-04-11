@@ -581,84 +581,139 @@ function translateIngredient(ing) {
   return result;
 }
 
-// ── MyMemory translation (async, with per-text cache) ─────────────────────────
+// ── Translation cache ─────────────────────────────────────────────────────────
 const trCache = new Map();
 
-async function translateViaApi(text) {
+// ── MyMemory: last-resort per-text fallback ───────────────────────────────────
+async function translateViaMyMemory(text) {
   if (!text || !text.trim()) return text;
-  const key = text.slice(0, 60);
-  if (trCache.has(key)) return trCache.get(key);
   try {
     const { data } = await axios.get('https://api.mymemory.translated.net/get', {
       params: { q: text.slice(0, 500), langpair: 'en|el' },
-      timeout: 6000,
+      timeout: 5000,
     });
-    const translated = data?.responseData?.translatedText;
-    if (translated && translated !== text) {
-      trCache.set(key, translated);
-      return translated;
-    }
-    return text;
+    const t = data?.responseData?.translatedText;
+    return (t && t !== text) ? t : text;
   } catch {
     return text;
   }
 }
 
-// Translate title: use static dict first, fall back to API
-async function translateTitle(title) {
-  if (!title) return title;
-  if (MEAL_NAMES_GR[title]) return MEAL_NAMES_GR[title];
-  // Try partial match
-  for (const [en, gr] of Object.entries(MEAL_NAMES_GR)) {
-    if (title.toLowerCase().includes(en.toLowerCase())) {
-      return title.replace(new RegExp(en, 'i'), gr);
+// ── AI: batch-translate an array of titles in one call ────────────────────────
+// Returns a map { englishTitle → greekTitle } for all titles not in static dict.
+async function batchTranslateTitles(titles) {
+  const missing = [...new Set(titles.filter(t => t && !MEAL_NAMES_GR[t] && !trCache.has(`title:${t}`)))];
+  if (missing.length === 0) return;
+
+  const SYSTEM = 'You are a culinary translator. Translate recipe names from English to natural Greek. Return ONLY valid JSON, no markdown.';
+  const USER   = `Translate these recipe names to Greek. Return {"results":[{"en":"...","gr":"..."},...]}:\n${JSON.stringify(missing)}`;
+
+  try {
+    const raw     = await callAI(SYSTEM, USER);
+    const cleaned = raw.replace(/```json|```/g, '').trim();
+    const parsed  = JSON.parse(cleaned);
+    for (const { en, gr } of (parsed.results || [])) {
+      if (en && gr && gr !== en) {
+        MEAL_NAMES_GR[en] = gr;
+        trCache.set(`title:${en}`, gr);
+      }
     }
+  } catch {
+    // Silently fall through — per-title fallback will handle it
   }
-  return translateViaApi(title);
 }
 
-// Translate instructions in chunks so we can handle long text
-async function translateInstructions(text) {
-  if (!text) return '';
-  // Split at sentence boundaries (up to 450 chars per chunk)
+// ── AI: translate a full instruction text ────────────────────────────────────
+async function translateInstructionsAI(text) {
+  if (!text || text.length < 20) return text || '';
+  const cacheKey = `inst:${text.slice(0, 100)}`;
+  if (trCache.has(cacheKey)) return trCache.get(cacheKey);
+
+  const SYSTEM = `You are a culinary translator. Translate the recipe instructions from English to natural, clear Greek suitable for a home cook.
+Rules:
+- Keep step numbering (Step 1, Step 2 → Βήμα 1, Βήμα 2)
+- Translate measurements naturally (cup → φλιτζάνι, tbsp → κ.σ., tsp → κ.γ.)
+- Use common Greek cooking vocabulary
+- Do NOT include any English text in the output
+- Return ONLY the translated text, no explanations`;
+
+  try {
+    const result = await callAI(SYSTEM, text.slice(0, 2500));
+    if (result && result.trim() && result.trim().length > 20) {
+      const clean = result.trim();
+      trCache.set(cacheKey, clean);
+      return clean;
+    }
+  } catch { /* fall through */ }
+
+  // Fallback: MyMemory in chunks
   const sentences = text.match(/[^.!?\n]+[.!?\n]+/g) || [text];
   const chunks = [];
   let current = '';
   for (const s of sentences) {
-    if ((current + s).length > 450) {
-      if (current) chunks.push(current.trim());
-      current = s;
-    } else {
-      current += s;
-    }
+    if ((current + s).length > 450) { if (current) chunks.push(current.trim()); current = s; }
+    else current += s;
   }
   if (current.trim()) chunks.push(current.trim());
-
-  // Translate each chunk sequentially (respect rate limits)
-  const translated = [];
+  const parts = [];
   for (const chunk of chunks) {
-    translated.push(await translateViaApi(chunk));
-    await new Promise(r => setTimeout(r, 80)); // 80ms between requests
+    parts.push(await translateViaMyMemory(chunk));
+    await new Promise(r => setTimeout(r, 60));
   }
-  return translated.join(' ');
+  const fallback = parts.join(' ');
+  trCache.set(cacheKey, fallback);
+  return fallback;
 }
 
-// Full meal translation
+// ── Translate a single title (dict → cache → AI single → MyMemory) ───────────
+async function translateTitle(title) {
+  if (!title) return title;
+  if (MEAL_NAMES_GR[title]) return MEAL_NAMES_GR[title];
+  const cacheKey = `title:${title}`;
+  if (trCache.has(cacheKey)) return trCache.get(cacheKey);
+  // Partial dict match
+  for (const [en, gr] of Object.entries(MEAL_NAMES_GR)) {
+    if (title.toLowerCase().includes(en.toLowerCase())) {
+      const result = title.replace(new RegExp(en, 'i'), gr);
+      trCache.set(cacheKey, result);
+      return result;
+    }
+  }
+  // Single AI call for one title
+  try {
+    const result = await callAI(
+      'Translate this recipe name to Greek. Return ONLY the Greek translation, nothing else.',
+      title
+    );
+    if (result && result.trim() && result.trim() !== title) {
+      const clean = result.trim();
+      MEAL_NAMES_GR[title] = clean;
+      trCache.set(cacheKey, clean);
+      return clean;
+    }
+  } catch { /* fall through */ }
+  // Last resort: MyMemory
+  const mm = await translateViaMyMemory(title);
+  trCache.set(cacheKey, mm);
+  return mm;
+}
+
+// ── Full meal translation ─────────────────────────────────────────────────────
 async function translateMeal(meal) {
   const [titleGr, instructionsGr] = await Promise.all([
     translateTitle(meal.title),
-    translateInstructions(meal.instructions),
+    translateInstructionsAI(meal.instructions),
   ]);
   const ingredientsGr = (meal.ingredients || []).map(translateIngredient);
 
   return {
     ...meal,
-    title:          titleGr,
-    titleOriginal:  meal.title,
-    category:       CATEGORY_GR[meal.category] || meal.category,
-    area:           AREA_GR[meal.area]     || meal.area,
-    ingredients:    ingredientsGr,
-    instructions:   instructionsGr,
+    title:         titleGr,
+    titleOriginal: meal.title,
+    category:      CATEGORY_GR[meal.category] || meal.category,
+    area:          AREA_GR[meal.area]          || meal.area,
+    ingredients:   ingredientsGr,
+    instructions:  instructionsGr,
   };
 }
 
@@ -714,6 +769,9 @@ router.get('/greek', async (req, res) => {
 
     const valid = detailed.filter(Boolean);
 
+    // Pre-warm title cache with a single batch AI call
+    await batchTranslateTitles(valid.map(m => m.title));
+
     // Translate all meals sequentially to respect API rate limits
     const translated = [];
     for (const meal of valid) {
@@ -761,6 +819,9 @@ router.get('/mediterranean', async (req, res) => {
 
     const valid = detailed.filter(Boolean);
 
+    // Pre-warm title cache with a single batch AI call
+    await batchTranslateTitles(valid.map(m => m.title));
+
     const translated = [];
     for (const meal of valid) {
       translated.push(await translateMeal(meal));
@@ -788,7 +849,11 @@ router.get('/search', async (req, res) => {
     const { data } = await axios.get(`${BASE}/search.php`, {
       params: { s: q }, timeout: 8000,
     });
-    const raw     = (data?.meals || []).map(normaliseMeal).filter(Boolean);
+    const raw = (data?.meals || []).map(normaliseMeal).filter(Boolean);
+
+    // Pre-warm title cache with a single batch AI call
+    await batchTranslateTitles(raw.map(m => m.title));
+
     const translated = [];
     for (const meal of raw) {
       translated.push(await translateMeal(meal));
