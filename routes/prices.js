@@ -362,4 +362,37 @@ router.get('/top-offers', async (req, res) => {
   }
 });
 
+// ── GET /api/prices/scrape-status — last scrape time + product count ──────────
+router.get('/scrape-status', async (req, res) => {
+  try {
+    const total = await Product.countDocuments({ price: { $gt: 0 } });
+    const latest = await Product.findOne({ price: { $gt: 0 } }).sort({ dateScraped: -1 }).lean();
+    res.json({
+      total,
+      lastScraped: latest?.dateScraped || null,
+      isScraping: false, // frontend can also call /api/status for live status
+    });
+  } catch {
+    res.status(500).json({ message: 'Σφάλμα status.' });
+  }
+});
+
+// ── POST /api/prices/refresh — trigger on-demand scrape (admin only) ──────────
+router.post('/refresh', async (req, res) => {
+  const secret = req.headers['x-cron-secret'] || req.body?.secret;
+  if (!process.env.CRON_SECRET || secret !== process.env.CRON_SECRET) {
+    return res.status(403).json({ message: 'Απαγορεύεται. Απαιτείται CRON_SECRET.' });
+  }
+  try {
+    const { runWebScraper, getScrapingStatus } = require('../services/scraper');
+    if (getScrapingStatus()) {
+      return res.json({ started: false, message: 'Η ενημέρωση τιμών είναι ήδη σε εξέλιξη.' });
+    }
+    runWebScraper().catch(err => console.error('[PriceRefresh] Error:', err.message));
+    res.json({ started: true, message: 'Ενημέρωση τιμών ξεκίνησε. Θα διαρκέσει λίγα λεπτά.' });
+  } catch (err) {
+    res.status(500).json({ message: 'Σφάλμα εκκίνησης scraper.' });
+  }
+});
+
 module.exports = router;
