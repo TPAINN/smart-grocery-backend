@@ -173,6 +173,66 @@ async function lookupEdamam(barcode) {
   }
 }
 
+// ── Nutritionix Food Database ─────────────────────────────────────────────────
+// Register a free app at https://developer.nutritionix.com/
+// Free tier: 500 req/day — great for Greek products not in USDA
+const NUTRITIONIX_APP_ID  = process.env.NUTRITIONIX_APP_ID  || '';
+const NUTRITIONIX_APP_KEY = process.env.NUTRITIONIX_APP_KEY || '';
+
+async function lookupNutritionix(barcode) {
+  if (!NUTRITIONIX_APP_ID || !NUTRITIONIX_APP_KEY) return null;
+  try {
+    const { data } = await axios.get('https://trackapi.nutritionix.com/v2/search/item', {
+      params: { upc: barcode },
+      headers: {
+        'x-app-id':         NUTRITIONIX_APP_ID,
+        'x-app-key':        NUTRITIONIX_APP_KEY,
+        'x-remote-user-id': '0',
+      },
+      timeout: 8000,
+    });
+    const food = data?.foods?.[0];
+    if (!food) return null;
+
+    const result = {
+      barcode,
+      source:       'nutritionix',
+      name:         food.food_name || `Προϊόν (${barcode})`,
+      brand:        food.brand_name || null,
+      image:        food.photo?.thumb || null,
+      quantity:     food.serving_unit ? `${food.serving_qty || 1} ${food.serving_unit}` : '',
+      novaGroup:    null,
+      nutriScore:   null,
+      allergenTags: [],
+      additives:    [],
+      ingredients:  '',
+      hasPalmOil:   false,
+      isVegan:      false,
+      isVegetarian: false,
+      categories:   [],
+      labels:       [],
+      origin:       null,
+      scannedAt:    new Date().toISOString(),
+    };
+
+    if (food.nf_calories   != null) result.kcal      = Math.round(food.nf_calories);
+    if (food.nf_protein    != null) result.proteins   = Math.round(food.nf_protein * 10) / 10;
+    if (food.nf_total_fat  != null) result.fat        = Math.round(food.nf_total_fat * 10) / 10;
+    if (food.nf_saturated_fat != null) result.saturated = Math.round(food.nf_saturated_fat * 10) / 10;
+    if (food.nf_total_carbohydrate != null) result.carbs = Math.round(food.nf_total_carbohydrate * 10) / 10;
+    if (food.nf_sugars     != null) result.sugars     = Math.round(food.nf_sugars * 10) / 10;
+    if (food.nf_dietary_fiber != null) result.fiber   = Math.round(food.nf_dietary_fiber * 10) / 10;
+    if (food.nf_sodium     != null) {
+      result.sodium = Math.round(food.nf_sodium * 10) / 10;
+      result.salt   = Math.round(food.nf_sodium * 2.5 * 10) / 10;
+    }
+
+    return result;
+  } catch {
+    return null;
+  }
+}
+
 // ── Route ─────────────────────────────────────────────────────────────────────
 // GET /api/barcode/:barcode — Premium feature: requires auth + active plan
 router.get('/:barcode', authMiddleware, requirePremiumAccess, async (req, res) => {
@@ -182,14 +242,15 @@ router.get('/:barcode', authMiddleware, requirePremiumAccess, async (req, res) =
     return res.status(400).json({ found: false, message: 'Μη έγκυρο barcode.' });
   }
 
-  // Run USDA and Edamam in parallel — take whichever returns first
-  const [usdaResult, edamamResult] = await Promise.all([
+  // Run USDA, Edamam, and Nutritionix in parallel — pick the best result
+  const [usdaResult, edamamResult, nutritionixResult] = await Promise.all([
     lookupUsda(barcode),
     lookupEdamam(barcode),
+    lookupNutritionix(barcode),
   ]);
 
-  // Prefer USDA (always free) over Edamam; prefer whichever has more data
-  const candidates = [usdaResult, edamamResult].filter(Boolean);
+  // Prefer whichever has the most macro fields filled in
+  const candidates = [usdaResult, edamamResult, nutritionixResult].filter(Boolean);
   if (!candidates.length) return res.json({ found: false });
 
   // Pick the candidate with the most nutrient fields filled in
