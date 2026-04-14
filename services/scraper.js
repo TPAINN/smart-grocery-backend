@@ -55,7 +55,7 @@ const STORE_CONFIGS = {
         oldPrice: '[class*="ProductListItem_beginPrice"]',
         promo: '[class*="ProductListItem_badge"]'
     },
-    'MyMarket': { card: 'article, .product, .product-item, .product-card, [class*="ProductCard"], div.relative.flex.flex-col', name: '.line-clamp-2, [class*="product-name"], h3', oldPrice: '.diagonal-line', promo: '.product-note-tag', nextBtn: 'a[rel="next"],[data-mkey="next"]', img: 'img[data-nimg], img[loading="lazy"], picture img, img' },
+    'MyMarket': { card: 'article.product--teaser', name: '.line-clamp-2', oldPrice: '.diagonal-line', promo: '.product-note-tag, [class*="badge-promo"], [class*="offer-label"]', nextBtn: 'a[rel="next"]', img: 'picture img, img[loading="lazy"]' },
     'Μασούτης': { card: '.product-item, .col-product', name: '.productTitle', price: '.price', promo: '.pDscntPercent', loader: '.lds-spinner', img: '.productImage img, .product-image img, img' },
     'Market In': { card: '.product-grid-box, .product', name: '.product-ttl', price: '.new-price', oldPrice: '.old-price', promo: '.disc-value', nextBtn: 'span.material-icons, a.next' },
     'Γαλαξίας': { card: '.product-card, .col', name: '.text-black-i, h2', price: 'span[style*="rgb(2, 88, 165)"], .current-price, .price-label, [class*="price"]:not([class*="old"]):not([class*="base"])', promo: '.bg-secondary.text-primary', img: 'img[src*="galaxias"], img[data-src*="galaxias"], img[alt], img' },
@@ -148,33 +148,49 @@ const extractDataInBrowser = (storeName, config) => {
             } else if (nameEl) {
                 name = (nameEl.textContent || nameEl.innerText || '').trim();
             }
+        } else if (storeName === 'MyMarket') {
+            // Use GA data attribute name for clean product name
+            const gaLink = card.querySelector('a[data-google-analytics-item-param]');
+            if (gaLink) {
+                try {
+                    const gaData = JSON.parse(gaLink.getAttribute('data-google-analytics-item-param'));
+                    if (gaData && gaData.name) name = gaData.name;
+                } catch(e) {}
+            }
+            if (!name && nameEl) name = (nameEl.textContent || nameEl.innerText || '').trim();
         } else {
             if (nameEl) name = (nameEl.textContent || nameEl.innerText || '').trim();
         }
-        
+
         // ── Τιμή: τελική τιμή συσκευασίας ──────────
         const isUnitPrice = (txt) => /\/\s*(τεμ|kg|lt|κιλ|λίτρ|100g|100ml)/i.test(txt) ||
                                       /ανά\s*(κιλό|λίτρο|τεμ|kg|lt)/i.test(txt) ||
                                       / τεμ\.\s*$/.test(txt.trim());
 
         if (storeName === 'MyMarket') {
-            const mainPriceEl = card.querySelector('.selling-unit-row .price, .product-full--final-price');
-            if (mainPriceEl) {
-                priceNum = parsePrice(mainPriceEl.innerText || mainPriceEl.textContent);
-            } 
+            // Primary: GA data attribute — clean float, most reliable
+            const gaLink = card.querySelector('a[data-google-analytics-item-param]');
+            if (gaLink) {
+                try {
+                    const gaData = JSON.parse(gaLink.getAttribute('data-google-analytics-item-param'));
+                    if (gaData && gaData.price) priceNum = parseFloat(gaData.price);
+                } catch(e) {}
+            }
+            // Fallback: split whole + fraction (e.g. "1" + "29" → €1.29)
             if (!priceNum) {
-                const candidates = Array.from(card.querySelectorAll('.font-semibold, .price'));
-                for (const el of candidates) {
-                    if (el.classList.contains('diagonal-line')) continue;
-                    if (el.closest('.measure-label-wrapper') || el.closest('.measurment-unit-row') || el.closest('.base-price-wrapper') || el.closest('[class*="base-price"]')) continue;
-                    const txt = (el.innerText || el.textContent || '').trim();
-                    if (!txt || !txt.includes('€')) continue;
-                    const parsed = parsePrice(txt);
-                    if (parsed && parsed > 0 && parsed < 999) { 
-                        priceNum = parsed; 
-                        break; 
-                    }
+                const wholeEl = card.querySelector('.teaser-display-price-whole');
+                const fracEl  = card.querySelector('.teaser-display-price-fraction');
+                if (wholeEl && fracEl) {
+                    const whole = parseInt((wholeEl.textContent || '').trim(), 10) || 0;
+                    const frac  = parseInt((fracEl.textContent  || '').trim(), 10) || 0;
+                    const candidate = whole + frac / 100;
+                    if (candidate > 0 && candidate < 999) priceNum = candidate;
                 }
+            }
+            // Fallback 2: full .teaser-display-price text (space-split parser handles "€ 1 29")
+            if (!priceNum) {
+                const priceEl = card.querySelector('.teaser-display-price');
+                if (priceEl) priceNum = parsePrice(priceEl.innerText || priceEl.textContent);
             }
         } else {
             const priceEl = card.querySelector(config.price) || card.querySelector('[class*="price"]');
