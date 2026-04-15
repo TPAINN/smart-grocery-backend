@@ -108,8 +108,12 @@ async function callBytez(systemPrompt, userPrompt) {
 }
 
 // ── Robust JSON parser ──────────────────────────────────────────────────────
+function stripMarkdownFences(raw) {
+  return String(raw || '').replace(/```json|```/g, '').trim();
+}
+
 function parseJSON(raw, provider) {
-  const cleaned = raw.replace(/```json|```/g, '').trim();
+  const cleaned = stripMarkdownFences(raw);
   // Try direct parse
   try { return JSON.parse(cleaned); } catch {}
   // Try extracting largest JSON object
@@ -204,6 +208,77 @@ async function callVisionAI(systemPrompt, userPrompt, imageBase64, mediaType = '
 }
 
 // ── Main exported function — auto-selects provider ────────────────────────────
+async function callClaudeText(systemPrompt, userPrompt) {
+  const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+  tick('claude');
+  const message = await client.messages.create({
+    model: 'claude-haiku-4-5-20251001',
+    max_tokens: 8096,
+    system: systemPrompt,
+    messages: [{ role: 'user', content: userPrompt }],
+    temperature: 0.4,
+  });
+  return stripMarkdownFences(message.content[0]?.text || '');
+}
+
+async function callGeminiText(systemPrompt, userPrompt) {
+  const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+  const model = genAI.getGenerativeModel({
+    model: 'gemini-2.0-flash',
+    systemInstruction: systemPrompt,
+    generationConfig: {
+      temperature: 0.4,
+      maxOutputTokens: 16384,
+    },
+  });
+
+  tick('gemini');
+  const result = await model.generateContent(userPrompt);
+  return stripMarkdownFences(result.response.text());
+}
+
+async function callGroqText(systemPrompt, userPrompt) {
+  const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
+  tick('groq');
+  const completion = await groq.chat.completions.create({
+    model: 'llama-3.3-70b-versatile',
+    messages: [
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: userPrompt },
+    ],
+    temperature: 0.4,
+    max_tokens: 16384,
+  });
+  return stripMarkdownFences(completion.choices[0]?.message?.content || '');
+}
+
+async function callBytezText(systemPrompt, userPrompt) {
+  const apiKey = process.env.BYTEZ_API_KEY;
+  if (!apiKey) throw new Error('BYTEZ_API_KEY not set');
+
+  tick('bytez');
+  const res = await fetch('https://api.bytez.com/models/v2/Qwen/Qwen3-4B', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Key ${apiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt },
+      ],
+      stream: false,
+      params: { temperature: 0.4, max_length: 8192 },
+    }),
+  });
+
+  if (!res.ok) throw new Error(`Bytez HTTP ${res.status}`);
+  const data = await res.json();
+  if (data.error) throw new Error(`Bytez error: ${data.error}`);
+  return stripMarkdownFences(data.output?.content || '');
+}
+
 async function callAI(systemPrompt, userPrompt) {
   const providers = [
     { name: 'Claude claude-haiku-4-5',     key: 'ANTHROPIC_API_KEY', tracker: 'claude', fn: callClaude },
@@ -230,4 +305,32 @@ async function callAI(systemPrompt, userPrompt) {
   throw new Error(`Κανένα AI provider δεν είναι διαθέσιμο. ${errors.join(' | ')}`);
 }
 
-module.exports = { callAI, callVisionAI };
+async function callAIText(systemPrompt, userPrompt) {
+  const providers = [
+    { name: 'Claude claude-haiku-4-5', key: 'ANTHROPIC_API_KEY', tracker: 'claude', fn: callClaudeText },
+    { name: 'Gemini 2.0 Flash', key: 'GEMINI_API_KEY', tracker: 'gemini', fn: callGeminiText },
+    { name: 'Groq llama-3.3-70b', key: 'GROQ_API_KEY', tracker: 'groq', fn: callGroqText },
+    { name: 'Bytez Qwen3-4B', key: 'BYTEZ_API_KEY', tracker: 'bytez', fn: callBytezText },
+  ];
+
+  const errors = [];
+
+  for (const p of providers) {
+    if (!process.env[p.key]) continue;
+    if (!canUse(p.tracker)) { errors.push(`${p.name}: rate-limited`); continue; }
+
+    try {
+      console.log(`📝 [AI Text] Provider: ${p.name}`);
+      const raw = await p.fn(systemPrompt, userPrompt);
+      if (raw && raw.trim()) return raw.trim();
+      errors.push(`${p.name}: empty response`);
+    } catch (err) {
+      console.warn(`⚠️ [AI Text] ${p.name} failed: ${err.message}`);
+      errors.push(`${p.name}: ${err.message}`);
+    }
+  }
+
+  throw new Error(`Κανένας AI text provider δεν είναι διαθέσιμος. ${errors.join(' | ')}`);
+}
+
+module.exports = { callAI, callAIText, callVisionAI };

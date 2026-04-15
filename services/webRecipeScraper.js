@@ -22,6 +22,94 @@ function cleanStr(raw) {
         .replace(/\s{2,}/g, ' ').trim();
 }
 
+function normalizeRecipeText(raw) {
+    return cleanStr(raw)
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .trim();
+}
+
+function isAllCapsRecipeLine(raw) {
+    const line = cleanStr(raw);
+    const letters = line.replace(/[^A-Za-zΑ-Ωα-ω]/g, '');
+    return letters.length >= 6 && letters === letters.toUpperCase();
+}
+
+function isRecipeNoiseLine(raw) {
+    const line = normalizeRecipeText(raw);
+    if (!line) return true;
+    return (
+        line.includes('gymbeam') ||
+        line.includes('μπορει να σας ενδιαφερουν') ||
+        line.includes('δειτε επισης') ||
+        line.includes('related products') ||
+        line.includes('bestseller') ||
+        line.includes('προιοντα') ||
+        /^(bio\s+|απο\s+\d+)/.test(line) ||
+        /€|\$\d/.test(raw) ||
+        isAllCapsRecipeLine(raw)
+    );
+}
+
+function isRecipeSectionLine(raw) {
+    const line = normalizeRecipeText(raw).replace(/[:.]+$/g, '').trim();
+    if (!line) return false;
+    return (
+        /^(για\s+(τη|την|το|τον)\b)/.test(line) ||
+        /^(υλικα|συστατικα|εκτελεση|οδηγιες|παρασκευη|σερβιρισμα)\b/.test(line)
+    );
+}
+
+function dedupeRecipeLines(lines = []) {
+    const seen = new Set();
+    const result = [];
+    for (const line of lines) {
+        const key = normalizeRecipeText(line);
+        if (!key || seen.has(key)) continue;
+        seen.add(key);
+        result.push(line);
+    }
+    return result;
+}
+
+function splitInstructionText(raw) {
+    const cleaned = cleanStr(raw);
+    if (!cleaned) return [];
+    const paragraphs = cleaned
+        .split(/\r?\n{2,}|\r?\n/)
+        .map(s => cleanStr(s))
+        .filter(Boolean);
+    if (paragraphs.length > 1) return paragraphs;
+    return cleaned
+        .split(/(?<=[.!?])\s+(?=[A-ZΑ-Ω])/)
+        .map(s => cleanStr(s))
+        .filter(Boolean);
+}
+
+function sanitizeRecipeLines(lines, { instructions = false } = {}) {
+    const source = Array.isArray(lines) ? lines : [lines];
+    const cleaned = [];
+
+    for (const raw of source) {
+        for (let line of Array.isArray(raw) ? raw : [raw]) {
+            line = cleanStr(line)
+                .replace(/^[•·▪●]\s*/, '')
+                .replace(/^[-–—]\s*/, '')
+                .replace(/^\d+[.)]\s*/, '');
+
+            if (!line) continue;
+            if (isRecipeNoiseLine(line) || isRecipeSectionLine(line)) continue;
+            if (!instructions && line.length > 140) continue;
+            if (instructions && line.length < 10) continue;
+            if (!instructions && line.length < 2) continue;
+            cleaned.push(line);
+        }
+    }
+
+    return dedupeRecipeLines(cleaned);
+}
+
 /** ISO 8601 duration → minutes (e.g. "PT1H30M" → 90) */
 function parseDuration(iso) {
     if (!iso) return null;
@@ -43,7 +131,7 @@ function mapCategory(hints = []) {
     if (/σαλατ/i.test(t))                                   return 'Σαλάτες';
     if (/σουπ/i.test(t))                                    return 'Σούπες';
     if (/σνακ|snack/i.test(t))                              return 'Σνακ';
-    if (/επιδορπ|γλυκ|dessert|κεικ|cake|μπισκοτ/i.test(t)) return 'Επιδόρπια';
+    if (/επιδορπ|γλυκ|dessert|κεικ|cake|μπισκοτ|τουρτ|ταρτ|tart|brownie|cheesecake/i.test(t)) return 'Επιδόρπια';
     if (/συνοδευτ/i.test(t))                                return 'Συνοδευτικά';
     if (/ροφημ|smoothie|shake|drink/i.test(t))              return 'Ροφήματα';
     return 'Κυρίως';
@@ -208,6 +296,45 @@ async function parsePanosRecipe(page, url) {
         const allLines = contentText.split('\n').map(s => s.trim()).filter(s => s.length > 20);
 
         // Macros — each .nutri-fact has "label\nVALUEunit\n%"
+        const collapseLine = (s = '') => s.replace(/\s+/g, ' ').trim();
+        const normalizeLine = (s = '') => collapseLine(s)
+            .toLowerCase()
+            .normalize('NFD')
+            .replace(/[\u0300-\u036f]/g, '');
+        const isNoiseLine = (s = '') => {
+            const line = normalizeLine(s).replace(/[:.]+$/g, '');
+            const letters = collapseLine(s).replace(/[^A-Za-zΑ-Ωα-ω]/g, '');
+            const isAllCaps = letters.length >= 6 && letters === letters.toUpperCase();
+            return !line ||
+                line.includes('gymbeam') ||
+                line.includes('μπορει να σας ενδιαφερουν') ||
+                line.includes('δειτε επισης') ||
+                line.includes('related products') ||
+                line.includes('προιοντα') ||
+                /^(bio\s+|απο\s+\d+)/.test(line) ||
+                /^(για\s+(τη|την|το|τον)\b)/.test(line) ||
+                /^(υλικα|συστατικα|εκτελεση|οδηγιες|παρασκευη)\b/.test(line) ||
+                s.includes('€') ||
+                isAllCaps;
+        };
+        const cleanItemLine = (s = '') => collapseLine(s)
+            .replace(/^[•·▪●]\s*/, '')
+            .replace(/^[-–—]\s*/, '')
+            .replace(/^\d+[.)]\s*/, '')
+            .replace(/^(FITNESS\s+)?ΣΥΝΤΑΓ[ΗΉ]\s*(FITNESS\s*)?:\s*/i, '')
+            .trim();
+        const cleanIngredients = ingredients
+            .map(cleanItemLine)
+            .filter(s => s.length > 1 && s.length < 120 && !isNoiseLine(s));
+        const cleanInstructions = (() => {
+            const base = instructions.length
+                ? instructions
+                : (execText || fullText.split('\n\n').slice(1).join('\n')).split(/\n{2,}|\n|(?<=[.!?])\s+(?=[A-ZΑ-Ω])/);
+            return base
+                .map(cleanItemLine)
+                .filter(s => s.length > 15 && !isNoiseLine(s));
+        })();
+
         const macroMap = {};
         [...document.querySelectorAll('.nutri-fact')].forEach(el => {
             const t = el.innerText;
@@ -387,8 +514,8 @@ async function parseGymBeamRecipe(page, url) {
             description,
             image:    img?.src || ogImg || '',
             servings: servings || 1,
-            ingredients,
-            instructions,
+            ingredients: cleanIngredients,
+            instructions: cleanInstructions,
             ...macroMap,
         };
     });
@@ -651,9 +778,14 @@ async function scrapeWebRecipes(siteKey = 'all') {
                     }
                     seenTitles.add(titleKey);
 
+                    const cleanIngredients = sanitizeRecipeLines(raw.ingredients || []);
+                    const cleanInstructions = sanitizeRecipeLines(
+                        Array.isArray(raw.instructions) ? raw.instructions : splitInstructionText(raw.instructions || ''),
+                        { instructions: true }
+                    );
                     const time       = parseDuration(raw.timeRaw) || raw.time || null;
-                    const difficulty = getDifficulty(time, raw.ingredients?.length || 0);
-                    const category   = mapCategory([raw.title, ...(raw.keywords || [])]);
+                    const difficulty = getDifficulty(time, cleanIngredients.length || 0);
+                    const category   = mapCategory([raw.title, raw.description, ...(raw.keywords || []), ...cleanIngredients]);
                     const tags       = buildTags({ ...raw, time });
 
                     // ── AI macro estimation for recipes with missing nutrition ──
@@ -664,9 +796,9 @@ async function scrapeWebRecipes(siteKey = 'all') {
                         fat:      raw.fat      || null,
                         fiber:    raw.fiber    || null,
                     };
-                    if (!macros.calories && raw.ingredients?.length > 0) {
+                    if (!macros.calories && cleanIngredients.length > 0) {
                         try {
-                            const est = await estimateMacros(raw.ingredients, raw.servings || 4);
+                            const est = await estimateMacros(cleanIngredients, raw.servings || 4);
                             if (est) {
                                 macros = { ...macros, ...est };
                                 console.log(`  🧮 AI macros: ${est.calories}kcal P${est.protein}g C${est.carbs}g F${est.fat}g`);
@@ -687,8 +819,8 @@ async function scrapeWebRecipes(siteKey = 'all') {
                         fat:          macros.fat,
                         fiber:        macros.fiber,
                         isHealthy:    (macros.calories || 999) < 600,
-                        ingredients:  (raw.ingredients  || []).map(cleanStr).filter(s => s.length > 1),
-                        instructions: (raw.instructions || []).map(s => cleanStr(s).replace(/^\d+[\.\)]\s*/, '')).filter(s => s.length > 5),
+                        ingredients:  cleanIngredients,
+                        instructions: cleanInstructions,
                         tags,
                         cuisine:      raw.cuisine || 'Ελληνική',
                         category,

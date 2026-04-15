@@ -5,7 +5,7 @@
 const express   = require('express');
 const router    = express.Router();
 const axios     = require('axios');
-const { callAI } = require('../services/aiService');
+const { callAIText } = require('../services/aiService');
 
 const BASE = 'https://www.themealdb.com/api/json/v1/1';
 
@@ -605,13 +605,13 @@ async function batchTranslateTitles(titles) {
   const missing = [...new Set(titles.filter(t => t && !MEAL_NAMES_GR[t] && !trCache.has(`title:${t}`)))];
   if (missing.length === 0) return;
 
-  const SYSTEM = 'You are a culinary translator. Translate recipe names from English to natural Greek. Return ONLY valid JSON, no markdown.';
-  const USER   = `Translate these recipe names to Greek. Return {"results":[{"en":"...","gr":"..."},...]}:\n${JSON.stringify(missing)}`;
+  const SYSTEM = 'You are a culinary translator. Translate recipe names from their source language to natural Greek. Return ONLY valid JSON, no markdown.';
+  const USER   = `Translate these recipe names to Greek. Preserve the original title in "en" and return {"results":[{"en":"...","gr":"..."},...]}:\n${JSON.stringify(missing)}`;
 
   try {
-    const raw     = await callAI(SYSTEM, USER);
-    const cleaned = raw.replace(/```json|```/g, '').trim();
-    const parsed  = JSON.parse(cleaned);
+    const raw     = await callAIText(SYSTEM, USER);
+    const cleaned = String(raw || '').replace(/```json|```/g, '').trim();
+    const parsed  = JSON.parse(cleaned.match(/\{[\s\S]*\}/)?.[0] || cleaned);
     for (const { en, gr } of (parsed.results || [])) {
       if (en && gr && gr !== en) {
         MEAL_NAMES_GR[en] = gr;
@@ -629,7 +629,7 @@ async function translateInstructionsAI(text) {
   const cacheKey = `inst:${text.slice(0, 100)}`;
   if (trCache.has(cacheKey)) return trCache.get(cacheKey);
 
-  const SYSTEM = `You are a culinary translator. Translate the recipe instructions from English to natural, clear Greek suitable for a home cook.
+  const SYSTEM = `You are a culinary translator. Translate the recipe instructions from their source language to natural, clear Greek suitable for a home cook.
 Rules:
 - Keep step numbering (Step 1, Step 2 → Βήμα 1, Βήμα 2)
 - Translate measurements naturally (cup → φλιτζάνι, tbsp → κ.σ., tsp → κ.γ.)
@@ -638,7 +638,7 @@ Rules:
 - Return ONLY the translated text, no explanations`;
 
   try {
-    const result = await callAI(SYSTEM, text.slice(0, 2500));
+    const result = await callAIText(SYSTEM, text.slice(0, 2500));
     if (result && result.trim() && result.trim().length > 20) {
       const clean = result.trim();
       trCache.set(cacheKey, clean);
@@ -681,8 +681,8 @@ async function translateTitle(title) {
   }
   // Single AI call for one title
   try {
-    const result = await callAI(
-      'Translate this recipe name to Greek. Return ONLY the Greek translation, nothing else.',
+    const result = await callAIText(
+      'Translate this recipe name from its source language to Greek. Return ONLY the Greek translation, nothing else.',
       title
     );
     if (result && result.trim() && result.trim() !== title) {
