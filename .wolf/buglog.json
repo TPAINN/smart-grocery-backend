@@ -1,4 +1,89 @@
 {
   "version": 1,
-  "bugs": []
+  "bugs": [
+    {
+      "id": "bug-001",
+      "timestamp": "2026-04-16T12:50:00.000Z",
+      "error_message": "Μασούτης scraper finds 0 products — card selector .product-item, .col-product does not exist on page",
+      "file": "services/scraper.js",
+      "root_cause": "STORE_CONFIGS Μασούτης used .product-item/.col-product CSS class selectors but actual DOM uses div.product. Price selector .price also wrong — actual elements are .pStartPrice and .pDscntPrice",
+      "fix": "Changed card to '.product', price to '.pStartPrice', img to '.productImage, .catImgCont img, img'. Added Masoutis special-case price extraction block in extractDataInBrowser to handle discounted (.pDscntPrice) vs regular (.pStartPrice) prices",
+      "tags": ["scraper", "masoutis", "css-selector", "products-not-found"],
+      "related_bugs": ["bug-002"],
+      "occurrences": 1,
+      "last_seen": "2026-04-16"
+    },
+    {
+      "id": "bug-002",
+      "timestamp": "2026-04-16T12:50:00.000Z",
+      "error_message": "Γαλαξίας scraper finds 0 products — .product-card CSS class does not exist (Angular custom element)",
+      "file": "services/scraper.js",
+      "root_cause": "STORE_CONFIGS Γαλαξίας card selector was '.product-card, .col' (CSS class) but Galaxias uses Angular SSR with <product-card> custom element. The dot prefix selects class=product-card which doesn't exist.",
+      "fix": "Changed card to 'product-card' (tag selector for Angular custom element), name to 'a.text-black-i', img to 'img[src*=\"galaxias.shop/api/media\"], img[src*=\"galaxias\"]'",
+      "tags": ["scraper", "galaxias", "angular-custom-element", "css-selector", "products-not-found"],
+      "related_bugs": ["bug-001"],
+      "occurrences": 1,
+      "last_seen": "2026-04-16"
+    },
+    {
+      "id": "bug-003",
+      "timestamp": "2026-04-16T12:50:00.000Z",
+      "error_message": "AI Meal Plan returns 500 error 'Δεν βρέθηκε κανένα AI API key στο .env' when only ANTHROPIC_API_KEY is set",
+      "file": "routes/mealplan.js",
+      "root_cause": "Early key-check condition only tested GEMINI_API_KEY, GROQ_API_KEY, BYTEZ_API_KEY — did NOT include ANTHROPIC_API_KEY. So users with only Claude configured got a false 500 error.",
+      "fix": "Added !process.env.ANTHROPIC_API_KEY to the condition so it only errors when ALL four providers are missing",
+      "tags": ["mealplan", "api-key", "500-error", "anthropic"],
+      "related_bugs": ["bug-004"],
+      "occurrences": 1,
+      "last_seen": "2026-04-16"
+    },
+    {
+      "id": "bug-004",
+      "timestamp": "2026-04-16T12:50:00.000Z",
+      "error_message": "Meal plan JSON parse failed / truncated for 7-day plans with Claude",
+      "file": "services/aiService.js",
+      "root_cause": "callClaude had max_tokens: 8096 which is insufficient for a full 7-day meal plan with 6 meal slots/day × 2 options each (~9000+ tokens output)",
+      "fix": "Increased max_tokens to 16000 in callClaude function",
+      "tags": ["mealplan", "claude", "token-limit", "json-parse"],
+      "related_bugs": ["bug-003"],
+      "occurrences": 1,
+      "last_seen": "2026-04-16"
+    },
+    {
+      "id": "bug-005",
+      "timestamp": "2026-04-16T12:52:00.000Z",
+      "error_message": "GymBeam recipes return 0 ingredients — parseGymBeamRecipe returned cleanIngredients/cleanInstructions (undefined variables)",
+      "file": "services/webRecipeScraper.js",
+      "root_cause": "parseGymBeamRecipe's return statement used `cleanIngredients` and `cleanInstructions` variable names from a different function (parsePanosRecipe) instead of the local `ingredients` and `instructions` variables",
+      "fix": "Fixed return statement to use correct variable names: ingredients and instructions",
+      "tags": ["recipe", "gymbeam", "ingredients", "undefined-variable", "wrong-return"],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-04-16"
+    },
+    {
+      "id": "bug-006",
+      "timestamp": "2026-04-16T12:52:00.000Z",
+      "error_message": "GymBeam product-promo lines ('Αλεύρι αμυγδάλου - GymBeam') appear in recipe ingredients list",
+      "file": "services/webRecipeScraper.js",
+      "root_cause": "Browser-side ingredient filter in parseGymBeamRecipe only blocked lines STARTING with 'GymBeam|BIO [A-Z]' but not lines ENDING with '- GymBeam'. isRecipeNoiseLine was not called on the browser-extracted ingredients.",
+      "fix": "Added sLower.includes('gymbeam') check in browser-side filter. Strengthened isRecipeNoiseLine with rawLower check for all GymBeam variants. Added section-header pattern to isRecipeSectionLine.",
+      "tags": ["recipe", "gymbeam", "noise-filter", "ingredients"],
+      "related_bugs": ["bug-005"],
+      "occurrences": 1,
+      "last_seen": "2026-04-16"
+    },
+    {
+      "id": "bug-007",
+      "timestamp": "2026-04-16T12:50:00.000Z",
+      "error_message": "TheMealDB shows English titles: Budino Di Ricotta, Chicken Alfredo Primavera, Fettuccine Alfredo, Chilli prawn linguine",
+      "file": "routes/meals.js",
+      "root_cause": "These titles were missing from the MEAL_NAMES_GR static dictionary. The AI batch translation fallback should catch them but the static dict is the first line of defense.",
+      "fix": "Added 20 missing titles to MEAL_NAMES_GR: 9 Italian (Budino Di Ricotta, Fettuccine Alfredo, Chicken Alfredo Primavera, etc.) and 11 Others (Chilli prawn linguine, Thai Green Curry, Jerk Chicken, etc.)",
+      "tags": ["meals", "translation", "greek", "themealdb"],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-04-16"
+    }
+  ]
 }

@@ -110,6 +110,15 @@ const MEAL_NAMES_GR = {
   'Focaccia': 'Φοκάτσα',
   'Calzone': 'Καλτσόνε',
   'Piadina': 'Πιαδίνα',
+  'Budino Di Ricotta': 'Μπουντίνο Ρικότα',
+  'Fettuccine Alfredo': 'Φετουτσίνε Αλφρέντο',
+  'Chicken Alfredo Primavera': 'Κοτόπουλο Αλφρέντο Πριμαβέρα',
+  'Spaghetti alla Carbonara': 'Σπαγγέτι Καρμπονάρα',
+  'Pasta alla Norma': 'Ζυμαρικά Νόρμα',
+  'Tagliatelle al Ragù': 'Ταλιατέλε με Ραγκού',
+  'Rigatoni alla Genovese': 'Ριγκατόνι Γενοβέζε',
+  'Orecchiette alle Cime di Rapa': 'Ορεκιέτε με Γογγύλια',
+  'Baccalà alla Vicentina': 'Βακαλάος Βιτσεντίνα',
   // ── Spanish ────────────────────────────────────────────────────────
   'Paella de Marisco': 'Παέλια Θαλασσινών',
   'Paella': 'Παέλια',
@@ -205,6 +214,17 @@ const MEAL_NAMES_GR = {
   'Pancakes': 'Τηγανίτες',
   'French Toast': 'Γαλλική Φρυγανιά',
   'Banana Pancakes': 'Τηγανίτες Μπανάνας',
+  'Chilli prawn linguine': 'Λινγκουίνε με Γαρίδες Τσίλι',
+  'Prawn Noodle Stir Fry': 'Noodles με Γαρίδες Τηγανητά',
+  'Thai Green Curry': 'Ταϊλανδέζικο Πράσινο Κάρι',
+  'Jerk Chicken': 'Τζαμαϊκανό Κοτόπουλο Jerk',
+  'Beef Rendang': 'Μπιφ Ρεντάνγκ',
+  'Nasi Goreng': 'Νάσι Γκορένγκ',
+  'Laksa': 'Λάκσα',
+  'Kedgeree': 'Κέτζερι',
+  'Baingan Bharta': 'Μελιτζάνα Μπάρτα',
+  'Shakshuka': 'Σακσούκα',
+  'Jollof Rice': 'Ρύζι Τζόλοφ',
 };
 
 // Common ingredient word replacements (longest-first to avoid partial matches)

@@ -39,14 +39,19 @@ function isAllCapsRecipeLine(raw) {
 function isRecipeNoiseLine(raw) {
     const line = normalizeRecipeText(raw);
     if (!line) return true;
+    const rawLower = (raw || '').toLowerCase();
     return (
         line.includes('gymbeam') ||
+        rawLower.includes('gymbeam') ||
+        rawLower.includes('μπορεί να σας ενδιαφέρουν') ||
         line.includes('μπορει να σας ενδιαφερουν') ||
+        line.includes('μπορει να σας ενδιαφερει') ||
+        line.includes('αυτα τα προιοντα') ||
         line.includes('δειτε επισης') ||
         line.includes('related products') ||
         line.includes('bestseller') ||
-        line.includes('προιοντα') ||
-        /^(bio\s+|απο\s+\d+)/.test(line) ||
+        line.includes('σκονη πρωτεινης') ||
+        /^(bio\s+προτεινομενα|απο\s+\d+)/.test(line) ||
         /€|\$\d/.test(raw) ||
         isAllCapsRecipeLine(raw)
     );
@@ -57,6 +62,7 @@ function isRecipeSectionLine(raw) {
     if (!line) return false;
     return (
         /^(για\s+(τη|την|το|τον)\b)/.test(line) ||
+        /θα\s+χρειαστουμε\s*$/.test(line) ||
         /^(υλικα|συστατικα|εκτελεση|οδηγιες|παρασκευη|σερβιρισμα)\b/.test(line)
     );
 }
@@ -467,13 +473,19 @@ async function parseGymBeamRecipe(page, url) {
 
         const ingredients = ingText.split('\n')
             .map(s => s.trim())
-            .filter(s =>
-                s.length > 1 &&
-                s.length < 100 &&
-                !s.includes('€') &&
-                !/^(GymBeam|BIO [A-Z]|Από \d)/.test(s) &&
-                !isAllCapsLine(s)   // ← removes section headers
-            );
+            .filter(s => {
+                if (!s || s.length < 2 || s.length >= 100) return false;
+                if (s.includes('€')) return false;
+                if (isAllCapsLine(s)) return false;  // removes section headers
+                const sLower = s.toLowerCase();
+                if (sLower.includes('gymbeam')) return false;  // catches "- GymBeam" suffix
+                if (/^(GymBeam|BIO [A-Z]|Από \d)/i.test(s)) return false;
+                // Remove sub-section headers like "Για τη Ζύμη, θα χρειαστούμε:"
+                const sNorm = sLower.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+                if (/^για\s+(τη|την|το|τον)\b/.test(sNorm)) return false;
+                if (/θα\s+χρειαστουμε\s*[:]?\s*$/.test(sNorm)) return false;
+                return true;
+            });
 
         // FIX: Remove "FITNESS ΣΥΝΤΑΓΗ :" type labels from instruction lines
         // and filter ALL-CAPS-only lines (GymBeam uses them as section dividers in steps too)
@@ -514,8 +526,8 @@ async function parseGymBeamRecipe(page, url) {
             description,
             image:    img?.src || ogImg || '',
             servings: servings || 1,
-            ingredients: cleanIngredients,
-            instructions: cleanInstructions,
+            ingredients,
+            instructions,
             ...macroMap,
         };
     });
