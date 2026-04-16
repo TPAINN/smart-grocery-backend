@@ -45,20 +45,21 @@ const STORE_CONFIGS = {
         price: '[data-testid="product-block-price"]',
         oldPrice: '[data-testid="product-block-old-price"]',
         promo: '[data-testid="tag-promo-label"]',
-        img: 'img[data-testid="product-image"], picture img, img[src*="images"], img[data-src]',
+        img: 'img[data-testid="product-block-image"], img[data-testid="product-image"], picture img, img[src*="static.ab.gr"]',
     },
-    'Σκλαβενίτης': { card: '.product, li.item, .product-list > div, .product-card', name: 'h4 a, h4, .product__title a, .product__name a', price: '.price, [data-price]', oldPrice: 'del, .price.old', promo: '.offer-span, .text-minus' },
+    'Σκλαβενίτης': { card: '.product, li.item, .product-list > div, .product-card', name: 'h4 a, h4, .product__title a, .product__name a', price: '.price, [data-price]', oldPrice: 'del, .price.old', promo: '.offer-span, .text-minus', img: '.product__figure img, figure img, img[src*="static.sklavenitis"]' },
     'Κρητικός': {
         card: '[class*="ProductListItem_productItem"]',
         name: '[class*="ProductListItem_title__"]',
         price: '[class*="ProductListItem_finalPrice__"]',
         oldPrice: '[class*="ProductListItem_beginPrice"]',
-        promo: '[class*="ProductListItem_badge"]'
+        promo: '[class*="ProductListItem_badge"]',
+        img: 'img[class*="ProductListItem_productImage"], [class*="ProductListItem"] img'
     },
-    'MyMarket': { card: 'article.product--teaser', name: '.line-clamp-2', oldPrice: '.diagonal-line', promo: '.product-note-tag, [class*="badge-promo"], [class*="offer-label"]', nextBtn: 'a[rel="next"]', img: 'picture img, img[loading="lazy"]' },
-    'Μασούτης': { card: '.product-item, .col-product', name: '.productTitle', price: '.price', promo: '.pDscntPercent', loader: '.lds-spinner', img: '.productImage img, .product-image img, img' },
-    'Market In': { card: '.product-grid-box, .product', name: '.product-ttl', price: '.new-price', oldPrice: '.old-price', promo: '.disc-value', nextBtn: 'span.material-icons, a.next' },
-    'Γαλαξίας': { card: '.product-card, .col', name: '.text-black-i, h2', price: 'span[style*="rgb(2, 88, 165)"], .current-price, .price-label, [class*="price"]:not([class*="old"]):not([class*="base"])', promo: '.bg-secondary.text-primary', img: 'img[src*="galaxias"], img[data-src*="galaxias"], img[alt], img' },
+    'MyMarket': { card: 'article.product--teaser', name: '.line-clamp-2', oldPrice: '.diagonal-line', promo: '.product-note-tag, [class*="badge-promo"], [class*="offer-label"]', nextBtn: 'a[rel="next"]', img: '.teaser-image-container img, picture img, img[loading="lazy"]' },
+    'Μασούτης': { card: '.product', name: '.productTitle', price: '.pStartPrice', oldPrice: '.pStartPrice', promo: '.pDscntPercent', loader: '.lds-spinner', img: '.productImage, .catImgCont img, img' },
+    'Market In': { card: '.product-grid-box, .product', name: '.product-ttl', price: '.new-price', oldPrice: '.old-price', promo: '.disc-value', nextBtn: 'span.material-icons, a.next', img: '.product-thumb img, img[src*="market-in"]' },
+    'Γαλαξίας': { card: 'product-card', name: 'a.text-black-i', price: 'span[style*="rgb(2, 88, 165)"], .current-price, .price-label, [class*="price"]:not([class*="old"]):not([class*="base"])', promo: '.bg-secondary.text-primary', img: 'img[src*="galaxias.shop/api/media"], img[src*="galaxias"]' },
     'Lidl': {
         card: '.odsc-tile, .product-grid-box',
         name: '.product-grid-box__title',
@@ -206,6 +207,20 @@ const extractDataInBrowser = (storeName, config) => {
             if (oldPriceEl) oldPriceNum = parsePrice(oldPriceEl.innerText || oldPriceEl.textContent);
         }
         
+        // Special Masoutis price logic: .pDscntPrice = sale price, .pStartPrice = original
+        if (storeName === 'Μασούτης') {
+            const discEl = card.querySelector('.pDscntPrice');
+            const startEl = card.querySelector('.pStartPrice');
+            if (discEl) {
+                priceNum = parsePrice(discEl.innerText || discEl.textContent);
+                if (startEl) oldPriceNum = parsePrice(startEl.innerText || startEl.textContent);
+                isSale = true;
+            } else if (startEl) {
+                priceNum = parsePrice(startEl.innerText || startEl.textContent);
+                oldPriceNum = null;
+            }
+        }
+
         // Προσφορές
         if (config.promo) {
             const promos = card.querySelectorAll(config.promo);

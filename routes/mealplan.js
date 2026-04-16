@@ -138,7 +138,11 @@ function buildPrompt({ persons, budget, restrictions, goal, days, tdee, zigzag, 
 
   const goalMap = {
     balanced:   'ισορροπημένη Μεσογειακή διατροφή',
+    maintain:   'ισορροπημένη Μεσογειακή διατροφή (διατήρηση βάρους)',
     weightloss: 'απώλεια βάρους (θερμιδικό έλλειμμα, υψηλή πρωτεΐνη)',
+    loss:       'απώλεια βάρους (θερμιδικό έλλειμμα -500 kcal, υψηλή πρωτεΐνη)',
+    mild:       'ήπια απώλεια βάρους (-250 kcal ημερησίως, πλούσιο σε πρωτεΐνη)',
+    extreme:    'γρήγορη απώλεια βάρους (μεγάλο έλλειμμα, υψηλή πρωτεΐνη, χαμηλοί υδατάνθρακες)',
     muscle:     'μυϊκή ανάπτυξη (2g πρωτεΐνη/kg σωματικού βάρους, πλεόνασμα θερμίδων)',
     budget:     'οικονομική αλλά θρεπτική διατροφή',
   };
@@ -310,7 +314,7 @@ router.post('/', authMiddleware, requirePremiumAccess, async (req, res) => {
     macroRatios={ protein:30, carbs:40, fat:30 }, weather=null,
   } = req.body;
 
-  if (!process.env.GEMINI_API_KEY && !process.env.GROQ_API_KEY && !process.env.BYTEZ_API_KEY)
+  if (!process.env.ANTHROPIC_API_KEY && !process.env.GEMINI_API_KEY && !process.env.GROQ_API_KEY && !process.env.BYTEZ_API_KEY)
     return res.status(500).json({ message: 'Δεν βρέθηκε κανένα AI API key στο .env' });
 
   // Normalise macroRatios so they always sum to 100

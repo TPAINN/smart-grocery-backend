@@ -32,7 +32,7 @@ async function callClaude(systemPrompt, userPrompt) {
   tick('claude');
   const message = await client.messages.create({
     model: 'claude-haiku-4-5-20251001',
-    max_tokens: 8096,
+    max_tokens: 16000,
     system: systemPrompt,
     messages: [{ role: 'user', content: userPrompt }],
     temperature: 0.4,
@@ -213,7 +213,7 @@ async function callClaudeText(systemPrompt, userPrompt) {
   tick('claude');
   const message = await client.messages.create({
     model: 'claude-haiku-4-5-20251001',
-    max_tokens: 8096,
+    max_tokens: 4096,
     system: systemPrompt,
     messages: [{ role: 'user', content: userPrompt }],
     temperature: 0.4,
