@@ -85,5 +85,42 @@
       "occurrences": 1,
       "last_seen": "2026-04-16"
     }
+  ,
+    {
+      "id": "bug-008",
+      "timestamp": "2026-04-17T00:00:00.000Z",
+      "error_message": "Search for 'ξύδι' returns no results — user types with upsilon (υ) but products stored with iota (ι)",
+      "file": "routes/prices.js",
+      "root_cause": "normalize() strips diacritics via NFD: 'ξύδι'→'ξυδι' (U+03C5) but 'ξίδι'→'ξιδι' (U+03B9). υ and ι are different code points even though they sound identical in modern Greek.",
+      "fix": "Replaced greekUpsilonFold() with full iotacism system: greekIotaCanonical() (η,υ→ι for scoring) + buildPhoneticRegex() ([ηιυ] char-class for DB queries). Now scoreMatch() and scoreMultiWord() use iota-canonical for all comparisons. MongoDB queries use phonetic regex so ONE query matches all η/ι/υ variants bidirectionally. Added 'γατοτρ|σκυλοτρ' to PET_MARKERS. Raised score filter from >5 to >10.",
+      "tags": ["search", "greek", "normalization", "unicode", "upsilon", "iota", "ξύδι"],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-04-17"
+    },
+    {
+      "id": "bug-009",
+      "timestamp": "2026-04-17T00:00:00.000Z",
+      "error_message": "'Γίνεται συγχονισμός με τον server...' banner shows continuously/repeatedly",
+      "file": "src/App.jsx",
+      "root_cause": "checkStatus() poll (runs every 15s) called setIsServerWaking(true) whenever status endpoint was slow (>3s) or failed. Since the server is already awake during polling, this was always a false positive.",
+      "fix": "Removed setIsServerWaking() calls from checkStatus(). Server waking state is now only controlled by the recipe fetch wakeTimer, which is the legitimate startup case.",
+      "tags": ["ui", "banner", "server-status", "false-positive"],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-04-17"
+    },
+    {
+      "id": "bug-010",
+      "timestamp": "2026-04-17T00:00:00.000Z",
+      "error_message": "Blue focus outline rectangle appears around search bar when user clicks/taps",
+      "file": "src/App.css",
+      "root_cause": "Global :focus-visible rule in index.css adds outline: 2px solid var(--accent) to ALL focused elements. The .search-input already has a box-shadow focus indicator but no outline: none override.",
+      "fix": "Added outline: none !important to .search-input:focus-visible and :focus rules in App.css. Box-shadow remains as the visual focus indicator for accessibility.",
+      "tags": ["ui", "css", "focus", "outline", "search"],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-04-17"
+    }
   ]
 }

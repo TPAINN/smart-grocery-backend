@@ -77,10 +77,41 @@ Return ONLY valid JSON with this exact structure (no markdown, no explanation, n
   "tip": "Σύντομη συμβουλή υγείας στα ελληνικά."
 }
 
-RULES:
+MACRO CALCULATION RULES (follow strictly):
+- Calories MUST equal: (protein × 4) + (carbs × 4) + (fat × 9) — use this formula to verify each food item
+- totals MUST equal the sum of individual food items — do not invent separate totals
+- If individual food calorie is missing or wrong, recalculate: calories = protein*4 + carbs*4 + fat*9
+
+GREEK FOOD REFERENCE VALUES (use these for accuracy):
+- Ψωμί/τοστ (30g slice): 75 cal, 3p, 14c, 1f
+- Ρύζι μαγειρεμένο (100g): 130 cal, 2.7p, 28c, 0.3f
+- Μακαρόνια μαγειρεμένα (100g): 131 cal, 5p, 25c, 1.1f
+- Κοτόπουλο ψητό (100g): 165 cal, 31p, 0c, 3.6f
+- Μοσχαρίσιο κιμάς μαγειρεμένος (100g): 218 cal, 26p, 0c, 12f
+- Ελαιόλαδο (10ml/1 κ.σ.): 88 cal, 0p, 0c, 10f
+- Φέτα (30g): 75 cal, 4p, 1c, 6f
+- Τυρί κίτρινο (30g): 110 cal, 7p, 0c, 9f
+- Αυγό (50g): 72 cal, 6p, 0.4c, 5f
+- Πατάτες τηγανητές (100g): 312 cal, 3p, 41c, 15f
+- Πατάτες βραστές/ψητές (100g): 93 cal, 2.2p, 20c, 0.1f
+- Σαλάτα χωριάτικη (200g): 160 cal, 5p, 8c, 12f
+- Σπανακόπιτα (100g): 260 cal, 7p, 22c, 16f
+- Τυρόπιτα (100g): 310 cal, 10p, 28c, 18f
+- Μουσακάς (200g): 330 cal, 16p, 22c, 20f
+- Παστίτσιο (200g): 380 cal, 18p, 38c, 18f
+- Γεμιστά (200g): 220 cal, 6p, 32c, 8f
+- Φασόλια (100g cooked): 127 cal, 9p, 23c, 0.5f
+- Φακές μαγειρεμένες (100g): 116 cal, 9p, 20c, 0.4f
+- Ψάρι ψητό/βραστό (100g): 150 cal, 28p, 0c, 4f
+- Γιαούρτι στραγγιστό (100g): 97 cal, 10p, 4c, 5f
+- Σούπα (200ml avg): 60 cal, 3p, 8c, 2f
+
+IDENTIFICATION RULES:
 - Identify ALL visible foods including sauces, oils, dressings, garnishes, bread, drinks
+- For mixed dishes (μουσακάς, παστίτσιο, etc.) treat the whole dish as one entry
+- Estimate oil used in cooking separately if the dish looks oily
 - confidence: "high" = food clearly visible, "medium" = partially visible or mixed, "low" = unclear image
-- Be realistic about portions: a typical home plate main = 200-350g, side = 80-150g
+- Be realistic about portions: a typical home plate main = 200-350g, side = 80-150g, a soup bowl = 250-350ml
 - mealType options: "πρωινό", "σνακ", "κυρίως γεύμα", "ελαφρύ γεύμα", "επιδόρπιο"
 - tip: one sentence health insight, positive and informative
 - All number fields must be integers (no decimals)
@@ -98,7 +129,8 @@ const cleanText = (value, fallback = '') =>
 const reconcileTotal = (current, fallback) => {
   if (!current) return fallback;
   const delta = Math.abs(current - fallback);
-  const tolerance = Math.max(20, Math.round(fallback * 0.28));
+  // Tight 15% tolerance — if AI totals deviate more than 15% from computed sum, use computed
+  const tolerance = Math.max(15, Math.round(fallback * 0.15));
   return delta <= tolerance ? current : fallback;
 };
 

@@ -88,7 +88,7 @@ const escapeRegex = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 //    ×0.3 — Match μόνο ως "γεύση X" / descriptor (π.χ. "τροφή γάτας με γεύση κοτόπουλου")
 
 // Λέξεις που υποδηλώνουν ότι το προϊόν είναι για κατοικίδια
-const PET_MARKERS = /(^|\s)(γατα|γατος|γατων|γατας|σκυλος|σκυλου|σκυλων|κατοικιδι|ζωοτρ|petshop|pet shop|\bcat\b|\bdog\b)/;
+const PET_MARKERS = /(^|\s)(γατα|γατος|γατων|γατας|σκυλος|σκυλου|σκυλων|κατοικιδι|ζωοτρ|γατοτρ|σκυλοτρ|petshop|pet shop|\bcat\b|\bdog\b)/;
 
 // Αν το query δεν περιέχει pet-related λέξεις, θεωρούμε ότι ψάχνει ανθρώπινα τρόφιμα
 const isPetQuery = (q) => /(γατα|γατ |σκυλ|κατοικιδι|ζωοτρ|\bcat\b|\bdog\b)/.test(q);
@@ -107,32 +107,34 @@ function isIrrelevantProduct(name, q, qEsc) {
 function scoreMatch(productName, query) {
   const name  = normalize(productName);
   const q     = normalize(query);
-  const qEsc  = escapeRegex(q);
+  // Iota-canonical: η,υ→ι so phonetically identical words compare as equal
+  const nameI = greekIotaCanonical(name);
+  const qI    = greekIotaCanonical(q);
+  const qEsc  = escapeRegex(qI);
 
-  // ── Βασική βαθμολογία ─────────────────────────────────────────────────────
+  // ── Βασική βαθμολογία (phonetic-aware) ────────────────────────────────────
   let score = 0;
-  if (name === q)                                                    score = 100;
-  else if (name.startsWith(q + ' '))                                 score = 90;
-  else if (new RegExp(`(^|\\s)${qEsc}(\\s|$)`).test(name))          score = 80;
-  else if (new RegExp(`(^|\\s)${qEsc}`).test(name))                 score = 60;
-  else if (name.includes(q))                                         score = 20;
+  if (nameI === qI)                                                   score = 100;
+  else if (nameI.startsWith(qI + ' '))                               score = 90;
+  else if (new RegExp(`(^|\\s)${qEsc}(\\s|$)`).test(nameI))         score = 80;
+  else if (new RegExp(`(^|\\s)${qEsc}`).test(nameI))                score = 60;
+  else if (nameI.includes(qI))                                       score = 20;
 
   if (score === 0) return 0;
 
   // ── Penalty 1: Pet food όταν ψάχνεις ανθρώπινα τρόφιμα ───────────────────
-  // "Τροφή σκύλου κοτόπουλο" → query "κοτόπουλο" → score × 0.1
+  // Use original name/q (not iota-canonical) — PET_MARKERS use standard Greek spelling
   if (!isPetQuery(q) && PET_MARKERS.test(name)) {
     return Math.round(score * 0.1); // π.χ. 60 → 6
   }
 
   // ── Penalty 2: Query εμφανίζεται μόνο ως γεύση/άρωμα ─────────────────────
-  // "Τροφή γάτας με γεύση κοτόπουλου" → query "κοτόπουλο" → score × 0.3
   const flavorIdx = name.search(/(γευση|αρωμα|με γευση|με αρωμα)/);
   if (flavorIdx > 0) {
     const beforeDescriptor = name.substring(0, flavorIdx);
-    const queryInMainPart  = new RegExp(`(^|\\s)${qEsc}`).test(beforeDescriptor);
+    const queryInMainPart  = new RegExp(`(^|\\s)${escapeRegex(q)}`).test(beforeDescriptor);
     if (!queryInMainPart) {
-      return Math.round(score * 0.3); // π.χ. 60 → 18
+      return Math.round(score * 0.3);
     }
   }
 
@@ -142,7 +144,8 @@ function scoreMatch(productName, query) {
 // Για multi-word queries (π.χ. "φρεσκο γαλα"):
 // Κάθε λέξη πρέπει να υπάρχει στο προϊόν — AND logic
 function scoreMultiWord(productName, terms) {
-  const name = normalize(productName);
+  const name  = normalize(productName);
+  const nameI = greekIotaCanonical(name); // iota-canonical for phonetic bonus checks
   let totalScore = 0;
 
   for (const term of terms) {
@@ -151,18 +154,21 @@ function scoreMultiWord(productName, terms) {
     totalScore += s;
   }
 
-  // Bonuses μόνο για σχετικά προϊόντα (όχι pet food / flavor-only descriptors)
-  const q = terms[0];
-  const qEsc = escapeRegex(q);
-  if (!isIrrelevantProduct(name, q, qEsc)) {
-    // Bonus: αν η σειρά των λέξεων ταιριάζει
-    const queryStr = terms.map(escapeRegex).join('.*');
-    if (new RegExp(queryStr).test(name)) totalScore += 10;
+  // Bonuses — use iota-canonical so "ξύδι" bonuses apply to "ξίδι" products
+  const qRaw  = normalize(terms[0]);
+  const qI    = greekIotaCanonical(qRaw);
+  const qEscI = escapeRegex(qI);
+
+  if (!isIrrelevantProduct(name, qRaw, escapeRegex(qRaw))) {
+    // Bonus: αν η σειρά των λέξεων ταιριάζει (iota-canonical)
+    const queryStr = terms
+      .map(t => escapeRegex(greekIotaCanonical(normalize(t))))
+      .join('.*');
+    if (new RegExp(queryStr).test(nameI)) totalScore += 10;
 
     // Bonus: αν το όνομα ΑΡΧΙΖΕΙ με την πρώτη λέξη του query
     // "Κοτόπουλο φρέσκο" για query "κοτόπουλο" → +20
-    const firstTermEsc = escapeRegex(normalize(terms[0]));
-    if (new RegExp(`^${firstTermEsc}`).test(name)) totalScore += 20;
+    if (new RegExp(`^${qEscI}`).test(nameI)) totalScore += 20;
   }
 
   return totalScore;
@@ -185,6 +191,29 @@ router.get('/', async (req, res) => {
   }
 });
 
+// ── Greek phonetic normalization (iotacism) ──────────────────────────────────
+// In modern Greek, η (eta), ι (iota), υ (upsilon) are ALL pronounced like "i".
+// This is called iotacism. Users may type any of these where the product DB uses another.
+//
+//  Examples:
+//    User types "ξύδι"  → norm "ξυδι"  ← DB stores "ξίδι"  → norm "ξιδι"  [υ vs ι]
+//    User types "ζαχαρι" → norm "ζαχαρι" ← DB stores "ζάχαρη" → norm "ζαχαρη" [ι vs η]
+//
+// greekIotaCanonical: fold η,υ → ι for SCORING (both sides normalized → same string)
+// buildPhoneticRegex: [ηιυ] char-class for DB QUERIES (ONE regex matches all 3 variants)
+
+function greekIotaCanonical(normalizedText) {
+  return normalizedText.replace(/[ηυ]/g, 'ι');
+}
+
+function buildPhoneticRegex(normalizedTerm) {
+  // Replace each η/ι/υ with [ηιυ] so the regex matches all phonetic spellings at once
+  return normalizedTerm.split('').map(c => {
+    if ('ηιυ'.includes(c)) return '[ηιυ]';
+    return escapeRegex(c);
+  }).join('');
+}
+
 // ── Build all search term variants from a raw query ───────────────────────────
 function expandQuery(rawQuery) {
   const norm = normalize(rawQuery);
@@ -200,7 +229,6 @@ function expandQuery(rawQuery) {
   const variants = [];
 
   if (enTranslation) {
-    // Full EN phrase → GR translation
     variants.push(enTranslation.split(/\s+/).filter(t => t.length > 1));
   }
 
@@ -208,7 +236,8 @@ function expandQuery(rawQuery) {
     variants.push(greeklishResult.split(/\s+/).filter(t => t.length > 1));
   }
 
-  // Always include the normalized original terms
+  // Always include the normalized original terms.
+  // buildPhoneticRegex() in the DB query handles η/ι/υ matching bidirectionally.
   const originalTerms = norm.split(/\s+/).filter(t => t.length > 1);
   variants.push(originalTerms);
 
@@ -235,7 +264,7 @@ router.get('/search', async (req, res) => {
       if (!terms.length) continue;
 
       const regexFilters = terms.map(term => ({
-        normalizedName: { $regex: escapeRegex(term), $options: 'i' }
+        normalizedName: { $regex: buildPhoneticRegex(term), $options: 'i' }
       }));
 
       const candidates = await Product.find({ $and: regexFilters, ...storeFilter })
@@ -257,7 +286,7 @@ router.get('/search', async (req, res) => {
       const originalTerms = normalize(rawQuery).split(/\s+/).filter(t => t.length > 1);
       if (originalTerms.length > 1) {
         const orFilters = originalTerms.map(term => ({
-          normalizedName: { $regex: escapeRegex(term), $options: 'i' }
+          normalizedName: { $regex: buildPhoneticRegex(term), $options: 'i' }
         }));
         const fallback = await Product.find({ $or: orFilters, ...storeFilter })
           .select('name price supermarket imageUrl category normalizedName')
@@ -276,7 +305,7 @@ router.get('/search', async (req, res) => {
     // Score and rank
     const scored = allCandidates
       .map(p => ({ ...p, _score: scoreMultiWord(p.name, p._terms || [normalize(rawQuery)]) }))
-      .filter(p => p._score > 5)
+      .filter(p => p._score > 10)
       .sort((a, b) => b._score !== a._score ? b._score - a._score : (a.price || 0) - (b.price || 0));
 
     // Deduplicate: keep lowest price per (name, supermarket) pair
