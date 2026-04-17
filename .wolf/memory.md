@@ -13,3 +13,4 @@
 | 00:00 | Removed blue outline on search bar: outline: none !important on :focus-visible | src/App.css | SUCCESS | ~80 |
 | 00:00 | Improved platescanner SYSTEM_PROMPT: Greek food reference values, macro math formula, reconcile tolerance 28%→15% | routes/platescanner.js | SUCCESS | ~300 |
 | 12:52 | Fixed GymBeam critical bug (wrong return var names) + strengthened noise filter | services/webRecipeScraper.js | SUCCESS | ~300 |
+| 17:00 | platescanner.js v2: added healthScore, vitamins, sugar, /analyze-text, clarifying questions | routes/platescanner.js | done | ~2500 |

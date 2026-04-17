@@ -558,7 +558,7 @@
 - `lists.js` — routes/lists.js (~734 tok)
 - `mealplan.js` — routes/mealplan.js — Premium AI Meal Planner (~6866 tok)
 - `meals.js` — routes/meals.js (~9474 tok)
-- `platescanner.js` — routes/platescanner.js - AI Plate Macro Scanner (~2113 tok)
+- `platescanner.js` — routes/platescanner.js - AI Plate Macro Scanner v2: image scan + text analysis, healthScore, vitamins, clarifying questions (~3000 tok)
 - `prices.js` — routes/prices.js — Smart Search Engine v3 (EN+GR, transliteration, fuzzy) (~4298 tok)
 - `push.js` — routes/push.js — Web Push subscription management (~557 tok)
 - `recipes.js` — routes/recipes.js — Enhanced Recipe API (~2209 tok)
