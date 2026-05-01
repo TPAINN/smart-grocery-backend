@@ -228,6 +228,12 @@ async function populateRecipes(options = {}) {
     // ── Step 2: Process each recipe ──────────────────────────────────────
     for (const r of results) {
       try {
+        // Extract nutrition first — needed for both upsert and insert paths
+        const nutrients = {};
+        (r.nutrition?.nutrients || []).forEach(n => {
+          nutrients[n.name.toLowerCase()] = Math.round(n.amount);
+        });
+
         // Upsert: if recipe exists, update image/nutrition in case it changed
         const exists = await Recipe.findOne({ sourceId: r.id });
         if (exists) {
@@ -244,12 +250,6 @@ async function populateRecipes(options = {}) {
           skipped++;
           continue;
         }
-
-        // Extract nutrition
-        const nutrients = {};
-        (r.nutrition?.nutrients || []).forEach(n => {
-          nutrients[n.name.toLowerCase()] = Math.round(n.amount);
-        });
 
         // Extract ingredients (English)
         const ingredientsEn = (r.extendedIngredients || [])
