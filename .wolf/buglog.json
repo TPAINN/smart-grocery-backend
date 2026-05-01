@@ -121,6 +121,30 @@
       "related_bugs": [],
       "occurrences": 1,
       "last_seen": "2026-04-17"
+    },
+    {
+      "id": "bug-011",
+      "timestamp": "2026-04-30T00:00:00.000Z",
+      "error_message": "Cannot find module 'mongoose' — node runAll.js fails immediately",
+      "file": "runAll.js",
+      "root_cause": "node_modules directory was missing (not committed to git, .gitignore'd). npm install had never been run in this environment.",
+      "fix": "Ran `npm install` in smart-grocery-backend — all dependencies restored including mongoose, puppeteer, etc.",
+      "tags": ["dependencies", "npm", "mongoose", "node_modules", "setup"],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-04-30"
+    },
+    {
+      "id": "bug-012",
+      "timestamp": "2026-04-30T00:00:00.000Z",
+      "error_message": "Error processing recipe 775585: Cannot access 'nutrients' before initialization",
+      "file": "services/recipeScraper.js",
+      "root_cause": "JavaScript TDZ (Temporal Dead Zone): `const nutrients` was declared at line 249 (after the exists check), but the upsert block at lines 237-240 referenced `nutrients` before its declaration within the same block scope. `const` is hoisted but not initialized, causing the TDZ error on every recipe that already exists in DB.",
+      "fix": "Moved the `nutrients` extraction block above the `Recipe.findOne()` call so it is always initialized before any reference to it.",
+      "tags": ["tdz", "const", "javascript", "nutrients", "recipeScraper", "spoonacular"],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-04-30"
     }
   ]
 }
