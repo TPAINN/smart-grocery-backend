@@ -183,6 +183,52 @@ app.use('/api/plate-scanner',  plateScannerRoutes);  // AI Plate Macro Scanner (
 app.get('/api/health',  (req, res) => res.status(200).send('OK'));
 app.get('/api/status',  (req, res) => res.json({ isScraping: getScrapingStatus() }));
 
+// 🔍 Debug: scrape a single URL synchronously and return results (secret-protected)
+app.get('/api/debug-scrape', async (req, res) => {
+  if (!process.env.CRON_SECRET || req.query.secret !== process.env.CRON_SECRET)
+    return res.status(403).json({ message: 'Απαγορεύεται.' });
+  const url = req.query.url;
+  if (!url) return res.status(400).json({ error: 'provide ?url=' });
+  try {
+    const puppeteer = require('puppeteer-extra');
+    const StealthPlugin = require('puppeteer-extra-plugin-stealth');
+    puppeteer.use(StealthPlugin());
+    const fs = require('fs');
+    const CHROME_PATHS = ['/usr/bin/google-chrome-stable','/usr/bin/google-chrome','/usr/bin/chromium-browser','/usr/bin/chromium','C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe'];
+    let executablePath;
+    for (const p of CHROME_PATHS) { if (fs.existsSync(p)) { executablePath = p; break; } }
+    const browser = await puppeteer.launch({ headless: 'new', executablePath: executablePath || undefined, args: ['--no-sandbox','--disable-setuid-sandbox','--disable-gpu','--disable-dev-shm-usage','--single-process'] });
+    const page = await browser.newPage();
+    await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36');
+    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+    await new Promise(r => setTimeout(r, 3000));
+    const info = await page.evaluate((targetUrl) => {
+      const isAB = targetUrl.includes('ab.gr');
+      const isLidl = targetUrl.includes('lidl');
+      if (isAB) {
+        const cards = document.querySelectorAll('[data-testid="product-block"]');
+        const sample = cards[0] ? {
+          name: cards[0].querySelector('[data-testid="product-name"],[data-testid="product-block-name-link"]')?.textContent?.trim(),
+          price: cards[0].querySelector('[data-testid="product-block-price"]')?.textContent?.trim(),
+          img: cards[0].querySelector('img[src*="static.ab.gr"],picture img')?.getAttribute('src')?.slice(0,80)
+        } : null;
+        return { store: 'AB', cardCount: cards.length, sample, title: document.title.slice(0,60) };
+      }
+      if (isLidl) {
+        const tiles = document.querySelectorAll('.odsc-tile[data-grid-data]');
+        let sample = null;
+        if (tiles[0]) { try { const d = JSON.parse(tiles[0].getAttribute('data-grid-data')); sample = { name: d.fullTitle||d.title, price: d.price?.price, imgList: d.imageList?.[0], img: d.image }; } catch(e) {} }
+        return { store: 'Lidl', tileCount: tiles.length, sample, title: document.title.slice(0,60) };
+      }
+      return { title: document.title.slice(0,60), bodyLen: document.body.innerHTML.length };
+    }, url);
+    await browser.close();
+    res.json({ url, chromeFound: !!executablePath, chromePath: executablePath || 'bundled', ...info });
+  } catch(e) {
+    res.status(500).json({ error: e.message, stack: e.stack?.slice(0,500) });
+  }
+});
+
 app.get('/api/force-scrape', (req, res) => {
   if (!process.env.CRON_SECRET || req.query.secret !== process.env.CRON_SECRET)
     return res.status(403).json({ message: 'Απαγορεύεται.' });
