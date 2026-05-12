@@ -91,17 +91,34 @@ const MARKET_IN_URLS =[
     "https://www.market-in.gr/el-gr/psari-thalassina",
 ];
 const LIDL_URLS = [
-    // Main supermarket categories
-    "https://www.lidl-hellas.gr/c/fagito-poto/s10068374",           // Φαγητό & Ποτό (all food)
-    "https://www.lidl-hellas.gr/c/freska-proionta/s10068375",       // Φρέσκα Προϊόντα
-    "https://www.lidl-hellas.gr/c/prosfores/s10021508",             // Προσφορές
+    // Main food category (loads ALL food with load-more pagination)
+    "https://www.lidl-hellas.gr/c/fagito-poto/s10068374",               // Φαγητό & Ποτό
     // Non-food categories
-    "https://www.lidl-hellas.gr/c/koyzina-noikokyrio/s10068166",    // Κουζίνα & Νοικοκυριό
-    "https://www.lidl-hellas.gr/c/ergaleia-eidi-kipoy/s10068222",   // Εργαλεία & Είδη Κήπου
-    "https://www.lidl-hellas.gr/c/athlitiki-endysi-anapsychi/s10068226", // Αθλητισμός
-    "https://www.lidl-hellas.gr/c/oikiakos-exoplismos/s10068371",   // Οικιακός Εξοπλισμός
-    "https://www.lidl-hellas.gr/c/moda-axesoyar/s10068373",         // Μόδα & Αξεσουάρ
-    "https://www.lidl-hellas.gr/c/vrefika-paidika-eidi/s10068225",  // Βρεφικά & Παιδικά
+    "https://www.lidl-hellas.gr/c/koyzina-oikiakos-exoplismos/s10068166", // Κουζίνα & Οικιακός
+    "https://www.lidl-hellas.gr/c/ergaleia-eidi-kipoy/s10068222",         // Εργαλεία & Είδη Κήπου
+    "https://www.lidl-hellas.gr/c/athlitiki-endysi-anapsychi/s10068226",  // Αθλητισμός
+    "https://www.lidl-hellas.gr/c/oikiakos-exoplismos/s10068371",         // Οικιακός Εξοπλισμός
+    "https://www.lidl-hellas.gr/c/moda-axesoyar/s10068373",               // Μόδα & Αξεσουάρ
+    "https://www.lidl-hellas.gr/c/vrefika-paidika-eidi/s10068225",        // Βρεφικά & Παιδικά
+];
+
+// ΑΒ Βασιλόπουλος — hardcoded category URLs (replaces category_links.json dependency)
+const AB_URLS = [
+    "https://www.ab.gr/el/eshop/Oporopoleio/c/001",                                            // Οπωροπωλείο
+    "https://www.ab.gr/el/eshop/Fresko-Kreas-and-Psaria/c/002",                                // Φρέσκο Κρέας & Ψάρια
+    "https://www.ab.gr/el/eshop/Galaktokomika-Fytika-Rofimata-and-Eidi-Psygeioy/c/003",       // Γαλακτοκομικά & Ψυγείο
+    "https://www.ab.gr/el/eshop/Tyria-Fytika-Anapliromata-and-Allantika/c/004",               // Τυριά & Αλλαντικά
+    "https://www.ab.gr/el/eshop/Katepsygmena-trofima/c/005",                                   // Κατεψυγμένα
+    "https://www.ab.gr/el/eshop/Artos-Zacharoplasteio/c/006",                                  // Άρτος & Ζαχαροπλαστείο
+    "https://www.ab.gr/el/eshop/Etoima-Geymata/c/007",                                         // Έτοιμα Γεύματα
+    "https://www.ab.gr/el/eshop/Kava-anapsyktika-nera-xiroi-karpoi/c/008",                    // Κάβα & Αναψυκτικά
+    "https://www.ab.gr/el/eshop/Proino-snacking-and-rofimata/c/009",                           // Πρωινό & Ροφήματα
+    "https://www.ab.gr/el/eshop/Vasika-typopoiimena-trofima/c/010",                            // Βασικά τυποποιημένα τρόφιμα
+    "https://www.ab.gr/el/eshop/Ola-gia-to-moro/c/011",                                        // Όλα για το μωρό
+    "https://www.ab.gr/el/eshop/Eidi-prosopikis-peripoiisis/c/012",                            // Είδη προσωπικής περιποίησης
+    "https://www.ab.gr/el/eshop/Katharistika-Chartika-and-eidi-spitioy/c/013",                // Καθαριστικά & Χαρτικά
+    "https://www.ab.gr/el/eshop/Gia-katoikidia/c/014",                                         // Για κατοικίδια
+    "https://www.ab.gr/el/eshop/Healthy-Corner/c/019",                                         // Healthy Corner
 ];
 
 const STORE_CONFIGS = {
@@ -125,7 +142,7 @@ const STORE_CONFIGS = {
     'MyMarket': { card: 'article.product--teaser', name: '.line-clamp-2', oldPrice: '.diagonal-line', promo: '.product-note-tag, [class*="badge-promo"], [class*="offer-label"]', nextBtn: 'a[rel="next"]', img: '.teaser-image-container img, picture img, img[loading="lazy"]' },
     'Μασούτης': { card: '.product', name: '.productTitle', price: '.pStartPrice', oldPrice: '.pStartPrice', promo: '.pDscntPercent', loader: '.lds-spinner', img: '.productImage, .catImgCont img, img' },
     'Market In': { card: '.product-grid-box, .product', name: '.product-ttl', price: '.new-price', oldPrice: '.old-price', promo: '.disc-value', nextBtn: 'span.material-icons, a.next', img: '.product-thumb img, img[src*="market-in"]' },
-    'Γαλαξίας': { card: 'product-card', name: 'a.text-black-i', price: 'span[style*="rgb(2, 88, 165)"], .current-price, .price-label, [class*="price"]:not([class*="old"]):not([class*="base"])', promo: '.bg-secondary.text-primary', img: 'img[src*="galaxias.shop/api/media"], img[src*="galaxias"]' },
+    'Γαλαξίας': { card: 'product-card', name: 'a.text-black-i', price: 'span[style*="rgb(2, 88, 165)"], .current-price, .price-label, [class*="price"]:not([class*="old"]):not([class*="base"])', promo: '.bg-secondary.text-primary', img: 'product-card img, img[src*="galaxias.shop/api/media"], img[src*="galaxias"]' },
     'Lidl': {
         card: '.odsc-tile, .product-grid-box',
         name: '.product-grid-box__title',
@@ -134,6 +151,7 @@ const STORE_CONFIGS = {
         promo: '.ods-price__box-content-text-el',
         availability: '.ods-badge__label',
         loadMore: '.s-load-more__button',
+        img: 'img.odsc-image-gallery__image, img[class*="gallery"], img[class*="product-image"]',
     },
 };
 
@@ -540,63 +558,92 @@ async function scrapeKritikos(page, storeName, config, allFound) {
 }
 
 async function scrapeLidl(page, storeName, config, allFound) {
-    // LIDL uses data-grid-data JSON attribute on .odsc-tile divs — NOT standard CSS text selectors
-    try { await page.waitForSelector('.odsc-tile[data-grid-data]', { timeout: 25000 }); } catch(e) {}
+    // LIDL: uses data-gridbox-impression (URL-encoded JSON) on .odsc-tile divs
+    // Images live in img.odsc-image-gallery__image[src] — available even when HTTP image requests are blocked
+    try { await page.waitForSelector('.odsc-tile', { timeout: 25000 }); } catch(e) {}
 
-    const MAX_CLICKS = 60; // supports up to ~720 products (60 × 12)
+    const MAX_CLICKS = 60;
     let safetyLimit = 0;
 
     while (safetyLimit < MAX_CLICKS) {
-        // Extract products by parsing the data-grid-data JSON attribute
-        const products = await page.evaluate((storeNameArg) => {
-            const tiles = document.querySelectorAll('.odsc-tile[data-grid-data]');
+        const products = await page.evaluate((storeNameArg, imgSel) => {
             const result = [];
-            tiles.forEach(tile => {
+            const seen = new Set();
+
+            document.querySelectorAll('.odsc-tile').forEach(tile => {
                 try {
-                    const data = JSON.parse(tile.getAttribute('data-grid-data'));
-                    const title = data.fullTitle || data.title || '';
-                    if (!title) return;
+                    let name = '', priceNum = 0, oldPriceNum = null, isSale = false, is1plus1 = false, discountPercent = null;
 
-                    const priceObj = data.price || {};
-                    const priceNum = priceObj.price || 0;
-                    if (!priceNum || priceNum <= 0) return;
+                    // ── Name & Price from data-gridbox-impression (URL-encoded JSON) ──
+                    const rawImpression = tile.getAttribute('data-gridbox-impression');
+                    if (rawImpression) {
+                        try {
+                            const data = JSON.parse(decodeURIComponent(rawImpression));
+                            name = (data.name || '').replace(/(το τεμάχιο|το τεμαχιο|συσκευασία|συσκευασια)/gi, '').trim();
+                            priceNum = parseFloat(String(data.price || 0).replace(',', '.')) || 0;
+                        } catch(e2) {}
+                    }
 
-                    const rawOld = priceObj.oldPrice || 0;
-                    const oldPriceNum = rawOld > 0 ? rawOld : null;
-                    const priceTheme = priceObj.priceTheme || '';
-                    let isSale = priceTheme === 'white_red' || !!oldPriceNum;
-                    let is1plus1 = false;
-                    let discountPercent = null;
+                    // ── DOM fallback for name ──
+                    if (!name) {
+                        const titleEl = tile.querySelector('.product-grid-box__title, [class*="title"], [class*="name"]');
+                        if (titleEl) name = titleEl.textContent.trim();
+                    }
+                    // ── DOM fallback for price ──
+                    if (!priceNum) {
+                        const priceEl = tile.querySelector('.ods-price__value, [class*="price__value"]');
+                        if (priceEl) {
+                            const txt = priceEl.textContent.replace(/[€s]/g, '').replace(',', '.');
+                            priceNum = parseFloat(txt) || 0;
+                        }
+                    }
 
-                    (data.ribbons || []).forEach(r => {
-                        const txt = (r.text || r.label || JSON.stringify(r)).toLowerCase();
+                    if (!name || priceNum <= 0) return;
+                    if (seen.has(name)) return;
+                    seen.add(name);
+
+                    // ── Old price (strikethrough) ──
+                    const oldEl = tile.querySelector('.ods-price__strikethrough .ods-price__value, [class*="strikethrough"] [class*="value"]');
+                    if (oldEl) {
+                        const txt = oldEl.textContent.replace(/[€s]/g, '').replace(',', '.');
+                        oldPriceNum = parseFloat(txt) || null;
+                        if (oldPriceNum) isSale = true;
+                    }
+
+                    // ── Promo badge ──
+                    const promoEl = tile.querySelector('.ods-price__box-content-text-el, [class*="ribbon"], [class*="badge"]');
+                    if (promoEl) {
+                        const txt = promoEl.textContent.toLowerCase();
                         if (txt.includes('1+1') || txt.includes('+1')) { is1plus1 = true; isSale = true; }
                         const m = txt.match(/(-?\d+)\s*%/);
                         if (m) { discountPercent = m[0]; isSale = true; }
-                    });
+                    }
 
-                    // Skip out-of-stock
-                    const stock = data.stockAvailability || {};
-                    if (stock.available === false) return;
-
-                    let imgUrl = (data.media && data.media[0] && data.media[0].url) || data.imageUrl || null;
+                    // ── Image: src attr is available even when image HTTP requests are blocked ──
+                    let imgUrl = null;
+                    const imgSelectors = imgSel.split(',').map(s => s.trim()).filter(Boolean);
+                    for (const sel of imgSelectors) {
+                        try {
+                            const imgEl = tile.querySelector(sel);
+                            if (imgEl) {
+                                imgUrl = imgEl.getAttribute('src') || imgEl.getAttribute('data-src') || imgEl.getAttribute('data-lazy-src');
+                                if (imgUrl && !imgUrl.startsWith('data:')) break;
+                                imgUrl = null;
+                            }
+                        } catch(e3) {}
+                    }
                     if (imgUrl && imgUrl.startsWith('//')) imgUrl = 'https:' + imgUrl;
-                    else if (imgUrl && !imgUrl.startsWith('http')) imgUrl = window.location.origin + (imgUrl.startsWith('/') ? imgUrl : '/' + imgUrl);
-                    const packagingText = (priceObj.packaging && priceObj.packaging.text) || '';
-                    const basePriceText = (priceObj.basePrice && priceObj.basePrice.text) || '';
 
-                    const name = title.replace(/(το τεμάχιο|το τεμαχιο|συσκευασία|συσκευασια)/gi, '').trim();
                     const normalizedName = name.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-
-                    result.push({ name, normalizedName, supermarket: storeNameArg, price: priceNum, oldPrice: oldPriceNum, isOnSale: isSale, is1plus1, imageUrl: imgUrl, discountPercent, packagingText, basePriceText });
+                    result.push({ name, normalizedName, supermarket: storeNameArg, price: priceNum, oldPrice: oldPriceNum, isOnSale: isSale, is1plus1, imageUrl: imgUrl, discountPercent });
                 } catch(e) {}
             });
             return result;
-        }, storeName);
+        }, storeName, config.img || '');
 
-        products.forEach(p => allFound.set(p.normalizedName, p));
+        products.forEach(p => { if (!allFound.has(p.normalizedName)) allFound.set(p.normalizedName, p); });
 
-        // Check counter ".s-load-more__text" → "12 / 523" to know when done
+        // Check counter ".s-load-more__text" → "12 / 523"
         const { loaded, total, hasButton } = await page.evaluate((loadMoreSel) => {
             const counterEl = document.querySelector('.s-load-more__text');
             let loaded = 0, total = 0;
@@ -608,7 +655,7 @@ async function scrapeLidl(page, storeName, config, allFound) {
             return { loaded, total, hasButton: !!btn && !btn.disabled && btn.offsetParent !== null };
         }, config.loadMore);
 
-        console.log(`  🛒 LIDL: ${loaded}/${total} προϊόντα φορτώθηκαν (${allFound.size} μοναδικά)`);
+        console.log('  LIDL: ' + loaded + '/' + total + ' προϊόντα (' + allFound.size + ' μοναδικά)');
 
         if (!hasButton || (total > 0 && loaded >= total)) break;
 
@@ -704,15 +751,9 @@ async function runWebScraper(targetStore = null) {
     globalIsScraping = true; // Ξεκίνησε!
     completedJobs = 0;
 
-    let urlsToScrape =[ ...SKLAVENITIS_URLS, ...MYMARKET_URLS, ...MASOUTIS_URLS, ...KRITIKOS_URLS, ...GALAXIAS_URLS, ...MARKET_IN_URLS, ...LIDL_URLS ];
+    let urlsToScrape = [ ...SKLAVENITIS_URLS, ...MYMARKET_URLS, ...MASOUTIS_URLS, ...KRITIKOS_URLS, ...GALAXIAS_URLS, ...MARKET_IN_URLS, ...LIDL_URLS, ...AB_URLS ];
 
-    try {
-        const jsonPath = path.join(__dirname, '../category_links.json');
-        if (fs.existsSync(jsonPath)) {
-            const linksData = JSON.parse(fs.readFileSync(jsonPath, 'utf8'));
-            if (linksData['ΑΒ Βασιλόπουλος']) urlsToScrape = urlsToScrape.concat(linksData['ΑΒ Βασιλόπουλος']);
-        }
-    } catch (e) {}
+    // AB URLs are hardcoded in AB_URLS constant — no category_links.json needed
 
     let storeMap = urlsToScrape.map(url => {
         if (url.includes('ab.gr')) return { storeName: 'ΑΒ Βασιλόπουλος', url, id: 'ab' };
