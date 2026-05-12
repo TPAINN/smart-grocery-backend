@@ -728,16 +728,21 @@ async function scrapeTask({ page, data: { url, storeName } }) {
 
     // 💾 ΑΠΟΘΗΚΕΥΣΗ ΣΤΗ ΒΑΣΗ ΔΕΔΟΜΕΝΩΝ (UPSERT)
     const finalProducts = Array.from(allFound.values());
-    
+    console.log(`\n📦 [${storeName}] Βρέθηκαν ${finalProducts.length} προϊόντα → αποθήκευση...`);
+
     if (finalProducts.length > 0) {
+        const now = new Date();
         const bulkOps = finalProducts.map(product => ({
             updateOne: {
                 filter: { normalizedName: product.normalizedName, supermarket: product.supermarket },
-                update: { $set: product },
+                update: { $set: { ...product, dateScraped: now } },
                 upsert: true
             }
         }));
-        await Product.bulkWrite(bulkOps);
+        const result = await Product.bulkWrite(bulkOps);
+        console.log(`✅ [${storeName}] upserted=${result.upsertedCount} modified=${result.modifiedCount}`);
+    } else {
+        console.log(`⚠️  [${storeName}] 0 προϊόντα βρέθηκαν — τίποτα δεν αποθηκεύτηκε`);
     }
 
     // 🟢 Ενημέρωση Progress Bar
@@ -822,7 +827,9 @@ async function runWebScraper(targetStore = null) {
         }
     });
 
-    cluster.on('taskerror', (err, data) => {}); 
+    cluster.on('taskerror', (err, data) => {
+        console.error(`❌ Task error [${data?.storeName || data?.url}]: ${err?.message || err}`);
+    });
 
     await cluster.task(scrapeTask);
     storeMap.forEach(data => cluster.queue(data));
