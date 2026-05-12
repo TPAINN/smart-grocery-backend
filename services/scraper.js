@@ -782,28 +782,31 @@ async function runWebScraper(targetStore = null) {
         if (fs.existsSync(p)) { executablePath = p; break; }
     }
 
+    // Render free tier: 512MB RAM. Each Chrome instance ~150-200MB.
+    // maxConcurrency=3 → ~450-600MB peak, safe for free tier.
+    // CONCURRENCY_BROWSER: one browser per slot (isolated, lower memory than PAGE per session)
     const cluster = await Cluster.launch({
-        concurrency: Cluster.CONCURRENCY_PAGE,
-        maxConcurrency: 10,
+        concurrency: Cluster.CONCURRENCY_BROWSER,
+        maxConcurrency: 3,
         timeout: 600000,
         puppeteerOptions: {
             headless: "new",
-            defaultViewport: null,
+            defaultViewport: { width: 1280, height: 800 },
             ...(executablePath ? { executablePath } : {}),
             args:[
                 '--no-sandbox',
                 '--disable-setuid-sandbox',
                 '--disable-blink-features=AutomationControlled',
-                '--disable-web-security',
-                '--disable-features=IsolateOrigins,site-per-process',
                 '--disable-gpu',
                 '--disable-dev-shm-usage',
                 '--no-first-run',
                 '--no-zygote',
                 '--disable-extensions',
-                '--js-flags=--max-old-space-size=256',
+                '--js-flags=--max-old-space-size=512',
                 '--disable-notifications',
-                '--no-default-browser-check'
+                '--no-default-browser-check',
+                '--single-process',
+                '--memory-pressure-off'
             ]
         }
     });
