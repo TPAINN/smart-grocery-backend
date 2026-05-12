@@ -593,7 +593,7 @@ async function scrapeLidl(page, storeName, config, allFound) {
                     if (!priceNum) {
                         const priceEl = tile.querySelector('.ods-price__value, [class*="price__value"]');
                         if (priceEl) {
-                            const txt = priceEl.textContent.replace(/[€s]/g, '').replace(',', '.');
+                            const txt = priceEl.textContent.replace(/€/g, '').trim().replace(',', '.');
                             priceNum = parseFloat(txt) || 0;
                         }
                     }
@@ -605,7 +605,7 @@ async function scrapeLidl(page, storeName, config, allFound) {
                     // ── Old price (strikethrough) ──
                     const oldEl = tile.querySelector('.ods-price__strikethrough .ods-price__value, [class*="strikethrough"] [class*="value"]');
                     if (oldEl) {
-                        const txt = oldEl.textContent.replace(/[€s]/g, '').replace(',', '.');
+                        const txt = oldEl.textContent.replace(/€/g, '').trim().replace(',', '.');
                         oldPriceNum = parseFloat(txt) || null;
                         if (oldPriceNum) isSale = true;
                     }
