@@ -186,7 +186,8 @@ app.get('/api/status',  (req, res) => res.json({ isScraping: getScrapingStatus()
 app.get('/api/force-scrape', (req, res) => {
   if (!process.env.CRON_SECRET || req.query.secret !== process.env.CRON_SECRET)
     return res.status(403).json({ message: 'Απαγορεύεται.' });
-  runWebScraper().then(() => {
+  const targetStore = req.query.store || null;
+  runWebScraper(targetStore).then(() => {
     // Bust prices cache so next request fetches fresh data
     apiCache.flushAll();
     console.log('🗑️  API cache flushed after scrape');
