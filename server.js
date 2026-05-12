@@ -201,10 +201,19 @@ app.get('/api/debug-scrape', async (req, res) => {
     const page = await browser.newPage();
     await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36');
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
-    await new Promise(r => setTimeout(r, 8000)); // give React/Angular time to hydrate
+    // Try to wait for actual product cards (up to 15s), fall back to raw HTML snapshot
+    let cardWaitMs = 0;
+    try {
+      const t0 = Date.now();
+      await page.waitForSelector('[data-testid="product-block"], .odsc-tile[data-grid-data], product-card', { timeout: 15000 });
+      cardWaitMs = Date.now() - t0;
+    } catch(e) { cardWaitMs = -1; }
     const info = await page.evaluate((targetUrl) => {
       const isAB = targetUrl.includes('ab.gr');
       const isLidl = targetUrl.includes('lidl');
+      // Detect Cloudflare/bot challenge
+      const hasCF = !!document.querySelector('#challenge-running, #cf-wrapper, .cf-error-code');
+      const bodySnippet = document.body.innerHTML.slice(0, 800);
       if (isAB) {
         const cards = document.querySelectorAll('[data-testid="product-block"]');
         const sample = cards[0] ? {
@@ -212,16 +221,17 @@ app.get('/api/debug-scrape', async (req, res) => {
           price: cards[0].querySelector('[data-testid="product-block-price"]')?.textContent?.trim(),
           img: cards[0].querySelector('img[src*="static.ab.gr"],picture img')?.getAttribute('src')?.slice(0,80)
         } : null;
-        return { store: 'AB', cardCount: cards.length, sample, title: document.title.slice(0,60) };
+        return { store: 'AB', cardCount: cards.length, sample, title: document.title.slice(0,60), hasCF, bodySnippet: cards.length === 0 ? bodySnippet : null };
       }
       if (isLidl) {
         const tiles = document.querySelectorAll('.odsc-tile[data-grid-data]');
         let sample = null;
-        if (tiles[0]) { try { const d = JSON.parse(tiles[0].getAttribute('data-grid-data')); sample = { name: d.fullTitle||d.title, price: d.price?.price, imgList: d.imageList?.[0], img: d.image }; } catch(e) {} }
-        return { store: 'Lidl', tileCount: tiles.length, sample, title: document.title.slice(0,60) };
+        if (tiles[0]) { try { const d = JSON.parse(tiles[0].getAttribute('data-grid-data')); sample = { name: d.fullTitle||d.title, price: d.price?.price }; } catch(e) {} }
+        return { store: 'Lidl', tileCount: tiles.length, sample, title: document.title.slice(0,60), hasCF, bodySnippet: tiles.length === 0 ? bodySnippet : null };
       }
-      return { title: document.title.slice(0,60), bodyLen: document.body.innerHTML.length };
+      return { title: document.title.slice(0,60), bodyLen: document.body.innerHTML.length, hasCF, bodySnippet };
     }, url);
+    info.cardWaitMs = cardWaitMs;
     await browser.close();
     res.json({ url, chromeFound: !!executablePath, chromePath: executablePath || 'bundled', ...info });
   } catch(e) {
