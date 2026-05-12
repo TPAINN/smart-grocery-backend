@@ -14,3 +14,4 @@
 | 00:00 | Improved platescanner SYSTEM_PROMPT: Greek food reference values, macro math formula, reconcile tolerance 28%→15% | routes/platescanner.js | SUCCESS | ~300 |
 | 12:52 | Fixed GymBeam critical bug (wrong return var names) + strengthened noise filter | services/webRecipeScraper.js | SUCCESS | ~300 |
 | 17:00 | platescanner.js v2: added healthScore, vitamins, sugar, /analyze-text, clarifying questions | routes/platescanner.js | done | ~2500 |
+| 16:09 | Fixed Lidl scraper (data-grid-data JSON attr + imageList/image/cutoutimageV2), fixed AB (AB_URLS constant), fixed Galaxias img, reduced Render concurrency to 3 for 512MB RAM, added dateScraped to upserts, added debug-scrape endpoint | services/scraper.js, server.js | pushed fc54fb7..394ecd2 | ~8k tokens |
