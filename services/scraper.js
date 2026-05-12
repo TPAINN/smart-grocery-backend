@@ -558,104 +558,85 @@ async function scrapeKritikos(page, storeName, config, allFound) {
 }
 
 async function scrapeLidl(page, storeName, config, allFound) {
-    // LIDL: uses data-gridbox-impression (URL-encoded JSON) on .odsc-tile divs
-    // Images live in img.odsc-image-gallery__image[src] — available even when HTTP image requests are blocked
-    try { await page.waitForSelector('.odsc-tile', { timeout: 25000 }); } catch(e) {}
+    // LIDL: data-grid-data JSON attr on .odsc-tile divs (server-rendered, present before skeleton hydration)
+    // Image: data.imageList[0] || data.image || data.cutoutimageV2 || data.image_V1
+    try { await page.waitForSelector('.odsc-tile[data-grid-data]', { timeout: 25000 }); } catch(e) {}
 
     const MAX_CLICKS = 60;
     let safetyLimit = 0;
 
     while (safetyLimit < MAX_CLICKS) {
-        const products = await page.evaluate((storeNameArg, imgSel) => {
+        const products = await page.evaluate((storeNameArg) => {
             const result = [];
             const seen = new Set();
 
-            document.querySelectorAll('.odsc-tile').forEach(tile => {
+            document.querySelectorAll('.odsc-tile[data-grid-data]').forEach(tile => {
                 try {
-                    let name = '', priceNum = 0, oldPriceNum = null, isSale = false, is1plus1 = false, discountPercent = null;
+                    const d = JSON.parse(tile.getAttribute('data-grid-data'));
 
-                    // ── Name & Price from data-gridbox-impression (URL-encoded JSON) ──
-                    const rawImpression = tile.getAttribute('data-gridbox-impression');
-                    if (rawImpression) {
-                        try {
-                            const data = JSON.parse(decodeURIComponent(rawImpression));
-                            name = (data.name || '').replace(/(το τεμάχιο|το τεμαχιο|συσκευασία|συσκευασια)/gi, '').trim();
-                            priceNum = parseFloat(String(data.price || 0).replace(',', '.')) || 0;
-                        } catch(e2) {}
-                    }
+                    const title = d.fullTitle || d.title || '';
+                    if (!title) return;
 
-                    // ── DOM fallback for name ──
-                    if (!name) {
-                        const titleEl = tile.querySelector('.product-grid-box__title, [class*="title"], [class*="name"]');
-                        if (titleEl) name = titleEl.textContent.trim();
-                    }
-                    // ── DOM fallback for price ──
-                    if (!priceNum) {
-                        const priceEl = tile.querySelector('.ods-price__value, [class*="price__value"]');
-                        if (priceEl) {
-                            const txt = priceEl.textContent.replace(/€/g, '').trim().replace(',', '.');
-                            priceNum = parseFloat(txt) || 0;
-                        }
-                    }
+                    const priceObj = d.price || {};
+                    const priceNum = parseFloat(priceObj.price) || 0;
+                    if (!priceNum || priceNum <= 0) return;
 
-                    if (!name || priceNum <= 0) return;
-                    if (seen.has(name)) return;
-                    seen.add(name);
+                    if (seen.has(title)) return;
+                    seen.add(title);
 
-                    // ── Old price (strikethrough) ──
-                    const oldEl = tile.querySelector('.ods-price__strikethrough .ods-price__value, [class*="strikethrough"] [class*="value"]');
-                    if (oldEl) {
-                        const txt = oldEl.textContent.replace(/€/g, '').trim().replace(',', '.');
-                        oldPriceNum = parseFloat(txt) || null;
-                        if (oldPriceNum) isSale = true;
-                    }
+                    // Old price
+                    const oldPriceNum = (priceObj.oldPrice && priceObj.oldPrice > 0) ? priceObj.oldPrice : null;
+                    let isSale = priceObj.priceTheme === 'white_red' || !!oldPriceNum;
+                    let is1plus1 = false, discountPercent = null;
 
-                    // ── Promo badge ──
-                    const promoEl = tile.querySelector('.ods-price__box-content-text-el, [class*="ribbon"], [class*="badge"]');
-                    if (promoEl) {
-                        const txt = promoEl.textContent.toLowerCase();
+                    (d.ribbons || []).forEach(r => {
+                        const txt = (r.text || r.label || JSON.stringify(r)).toLowerCase();
                         if (txt.includes('1+1') || txt.includes('+1')) { is1plus1 = true; isSale = true; }
-                        const m = txt.match(/(-?\d+)\s*%/);
+                        const m = txt.match(/(-?d+)s*%/);
                         if (m) { discountPercent = m[0]; isSale = true; }
-                    }
+                    });
 
-                    // ── Image: src attr is available even when image HTTP requests are blocked ──
+                    // Image: try known paths in order
                     let imgUrl = null;
-                    const imgSelectors = imgSel.split(',').map(s => s.trim()).filter(Boolean);
-                    for (const sel of imgSelectors) {
-                        try {
-                            const imgEl = tile.querySelector(sel);
-                            if (imgEl) {
-                                imgUrl = imgEl.getAttribute('src') || imgEl.getAttribute('data-src') || imgEl.getAttribute('data-lazy-src');
-                                if (imgUrl && !imgUrl.startsWith('data:')) break;
-                                imgUrl = null;
-                            }
-                        } catch(e3) {}
+                    const imgCandidates = [
+                        d.imageList && d.imageList[0],
+                        d.imageList_V1 && d.imageList_V1[0],
+                        d.image,
+                        d.image_V1,
+                        d.cutoutimageV2
+                    ];
+                    for (const c of imgCandidates) {
+                        if (c && typeof c === 'string' && c.length > 5) { imgUrl = c; break; }
+                        if (c && typeof c === 'object') {
+                            const u = c.url || c.src || c.href || Object.values(c).find(v => typeof v === 'string' && v.startsWith('http'));
+                            if (u) { imgUrl = u; break; }
+                        }
                     }
                     if (imgUrl && imgUrl.startsWith('//')) imgUrl = 'https:' + imgUrl;
 
-                    const normalizedName = name.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+                    const name = title.replace(/(το τεμάχιο|το τεμαχιο|συσκευασία|συσκευασια)/gi, '').trim();
+                    const normalizedName = name.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
                     result.push({ name, normalizedName, supermarket: storeNameArg, price: priceNum, oldPrice: oldPriceNum, isOnSale: isSale, is1plus1, imageUrl: imgUrl, discountPercent });
                 } catch(e) {}
             });
             return result;
-        }, storeName, config.img || '');
+        }, storeName);
 
         products.forEach(p => { if (!allFound.has(p.normalizedName)) allFound.set(p.normalizedName, p); });
 
-        // Check counter ".s-load-more__text" → "12 / 523"
+        // Progress counter
         const { loaded, total, hasButton } = await page.evaluate((loadMoreSel) => {
             const counterEl = document.querySelector('.s-load-more__text');
             let loaded = 0, total = 0;
             if (counterEl) {
-                const m = counterEl.textContent.match(/(\d+)\s*[\/|]\s*(\d+)/);
+                const m = counterEl.textContent.match(/(d+)s*[/|]s*(d+)/);
                 if (m) { loaded = parseInt(m[1]); total = parseInt(m[2]); }
             }
             const btn = document.querySelector(loadMoreSel);
             return { loaded, total, hasButton: !!btn && !btn.disabled && btn.offsetParent !== null };
         }, config.loadMore);
 
-        console.log('  LIDL: ' + loaded + '/' + total + ' προϊόντα (' + allFound.size + ' μοναδικά)');
+        console.log('  LIDL: ' + loaded + '/' + total + ' loaded (' + allFound.size + ' unique)');
 
         if (!hasButton || (total > 0 && loaded >= total)) break;
 
