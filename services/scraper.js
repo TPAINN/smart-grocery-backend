@@ -17,25 +17,91 @@ const MYMARKET_URLS =[
     "https://www.mymarket.gr/frouta-lachanika", "https://www.mymarket.gr/fresko-kreas-psari", "https://www.mymarket.gr/galaktokomika-eidi-psygeiou", "https://www.mymarket.gr/tyria-allantika-deli", "https://www.mymarket.gr/katepsygmena-trofima", "https://www.mymarket.gr/mpyres-anapsyktika-krasia-pota", "https://www.mymarket.gr/proino-rofimata-kafes", "https://www.mymarket.gr/artozacharoplasteio-snacks", "https://www.mymarket.gr/trofima", "https://www.mymarket.gr/frontida-gia-to-moro-sas", "https://www.mymarket.gr/prosopiki-frontida", "https://www.mymarket.gr/oikiaki-frontida-chartika", "https://www.mymarket.gr/kouzina-mikrosyskeves-spiti", "https://www.mymarket.gr/frontida-gia-to-katoikidio-sas", "https://www.mymarket.gr/epochiaka", "https://www.mymarket.gr/viral-trends", "https://www.mymarket.gr/vegan-epiloges-sta-my-market"
 ];
 const MASOUTIS_URLS =[
-    "https://www.masoutis.gr/categories/index/prosfores?item=0", "https://www.masoutis.gr/categories/index/nea-proionta?item=11", "https://www.masoutis.gr/categories/index/meiwsh-timhs?item=9", "https://www.masoutis.gr/categories/index/proionta-masouths?item=2"
+    // Promotional / featured pages
+    "https://www.masoutis.gr/categories/index/prosfores?item=0",
+    "https://www.masoutis.gr/categories/index/nea-proionta?item=11",
+    "https://www.masoutis.gr/categories/index/meiwsh-timhs?item=9",
+    "https://www.masoutis.gr/categories/index/proionta-masouths?item=2",
+    // Full grocery categories
+    "https://www.masoutis.gr/categories/index/freska-froyta-kai-lachanika",
+    "https://www.masoutis.gr/categories/index/fresko-kreas",
+    "https://www.masoutis.gr/categories/index/ichtyes-thalassina",
+    "https://www.masoutis.gr/categories/index/galaktokomika-auga",
+    "https://www.masoutis.gr/categories/index/tyria-allantika",
+    "https://www.masoutis.gr/categories/index/psomi-alopolia",
+    "https://www.masoutis.gr/categories/index/katepsygmena",
+    "https://www.masoutis.gr/categories/index/pantopoleio",
+    "https://www.masoutis.gr/categories/index/zymarika-rizi-osprya",
+    "https://www.masoutis.gr/categories/index/konserves",
+    "https://www.masoutis.gr/categories/index/anapsyktika-nera-chymoi",
+    "https://www.masoutis.gr/categories/index/kava",
+    "https://www.masoutis.gr/categories/index/proinoy-glykismata",
+    "https://www.masoutis.gr/categories/index/snaks-xiroi-karpoi",
+    "https://www.masoutis.gr/categories/index/mpaharia-souses-ladia",
+    "https://www.masoutis.gr/categories/index/kafes-rofimata",
+    "https://www.masoutis.gr/categories/index/vrefika-paidika",
+    "https://www.masoutis.gr/categories/index/prosopiki-frontida",
+    "https://www.masoutis.gr/categories/index/kathariothta-oikiaka",
+    "https://www.masoutis.gr/categories/index/katoikidia",
 ];
 const KRITIKOS_URLS =[
     "https://kritikos-sm.gr/offers/", "https://kritikos-sm.gr/categories/manabikh/", "https://kritikos-sm.gr/categories/fresko-kreas/", "https://kritikos-sm.gr/categories/allantika/", "https://kritikos-sm.gr/categories/turokomika/", "https://kritikos-sm.gr/categories/galaktokomika/", "https://kritikos-sm.gr/categories/eidh-psugeiou/", "https://kritikos-sm.gr/categories/katapsuxh/", "https://kritikos-sm.gr/categories/pantopwleio/", "https://kritikos-sm.gr/categories/kaba/", "https://kritikos-sm.gr/categories/proswpikh-frontida/", "https://kritikos-sm.gr/categories/brefika/", "https://kritikos-sm.gr/categories/kathariothta/", "https://kritikos-sm.gr/categories/oikiakh-xrhsh/", "https://kritikos-sm.gr/categories/pet-shop/", "https://kritikos-sm.gr/categories/biologikaleitourgika/"
 ];
 const GALAXIAS_URLS =[
-    "https://galaxias.shop/eshop/2?promos=isExtraBonus&promos=isBravoBonus&promos=isKalathiNoikokiriou&promos=isSumferei&promos=isTileoptiko&promos=isGoldPrices", "https://galaxias.shop/eshop/59", "https://galaxias.shop/eshop/69", "https://galaxias.shop/eshop/194", "https://galaxias.shop/eshop/95", "https://galaxias.shop/eshop/66", "https://galaxias.shop/eshop/104", "https://galaxias.shop/eshop/68", "https://galaxias.shop/eshop/103", "https://galaxias.shop/eshop/1080515", "https://galaxias.shop/eshop/89", "https://galaxias.shop/eshop/88", "https://galaxias.shop/eshop/788", "https://galaxias.shop/eshop/342", "https://galaxias.shop/eshop/93", "https://galaxias.shop/eshop/75", "https://galaxias.shop/eshop/64", "https://galaxias.shop/eshop/72", "https://galaxias.shop/eshop/245", "https://galaxias.shop/eshop/86"
+    // Promotional / all-products with offer filters
+    "https://galaxias.shop/eshop/2?promos=isExtraBonus&promos=isBravoBonus&promos=isKalathiNoikokiriou&promos=isSumferei&promos=isTileoptiko&promos=isGoldPrices",
+    // Full category pages (numeric IDs from Galaxias CMS)
+    "https://galaxias.shop/eshop/59",   // Φρούτα & Λαχανικά
+    "https://galaxias.shop/eshop/69",   // Κρέας
+    "https://galaxias.shop/eshop/194",  // Ψάρια & Θαλασσινά
+    "https://galaxias.shop/eshop/95",   // Γαλακτοκομικά
+    "https://galaxias.shop/eshop/66",   // Τυριά
+    "https://galaxias.shop/eshop/104",  // Αλλαντικά
+    "https://galaxias.shop/eshop/68",   // Ψωμί & Αρτοποιεία
+    "https://galaxias.shop/eshop/103",  // Κατεψυγμένα
+    "https://galaxias.shop/eshop/1080515", // Έτοιμα γεύματα
+    "https://galaxias.shop/eshop/89",   // Ζυμαρικά & Ρύζι
+    "https://galaxias.shop/eshop/88",   // Κονσέρβες
+    "https://galaxias.shop/eshop/788",  // Σάλτσες & Μπαχαρικά
+    "https://galaxias.shop/eshop/342",  // Λάδια & Λιπαρά
+    "https://galaxias.shop/eshop/93",   // Αναψυκτικά & Νερά
+    "https://galaxias.shop/eshop/75",   // Καφές & Ροφήματα
+    "https://galaxias.shop/eshop/64",   // Πρωινό & Δημητριακά
+    "https://galaxias.shop/eshop/72",   // Σνακ & Ξηροί Καρποί
+    "https://galaxias.shop/eshop/245",  // Κάβα
+    "https://galaxias.shop/eshop/86",   // Προσωπική Φροντίδα
+    "https://galaxias.shop/eshop/76",   // Καθαριότητα
+    "https://galaxias.shop/eshop/77",   // Βρεφικά
+    "https://galaxias.shop/eshop/78",   // Κατοικίδια
 ];
 const MARKET_IN_URLS =[
-    "https://www.market-in.gr/el-gr/manabikh", "https://www.market-in.gr/el-gr/kreopoleio-1", "https://www.market-in.gr/el-gr/tyrokomika-allantika", "https://www.market-in.gr/el-gr/trofima", "https://www.market-in.gr/el-gr/kava", "https://www.market-in.gr/el-gr/vrefika", "https://www.market-in.gr/el-gr/galaktokomika-proionta-psugeiou", "https://www.market-in.gr/el-gr/katepsugmena", "https://www.market-in.gr/el-gr/prosopikh-frontida", "https://www.market-in.gr/el-gr/kathariothta", "https://www.market-in.gr/el-gr/ola-gia-to-spiti", "https://www.market-in.gr/el-gr/katoikidia"
+    "https://www.market-in.gr/el-gr/manabikh",
+    "https://www.market-in.gr/el-gr/kreopoleio-1",
+    "https://www.market-in.gr/el-gr/tyrokomika-allantika",
+    "https://www.market-in.gr/el-gr/trofima",
+    "https://www.market-in.gr/el-gr/kava",
+    "https://www.market-in.gr/el-gr/vrefika",
+    "https://www.market-in.gr/el-gr/galaktokomika-proionta-psugeiou",
+    "https://www.market-in.gr/el-gr/katepsugmena",
+    "https://www.market-in.gr/el-gr/prosopikh-frontida",
+    "https://www.market-in.gr/el-gr/kathariothta",
+    "https://www.market-in.gr/el-gr/ola-gia-to-spiti",
+    "https://www.market-in.gr/el-gr/katoikidia",
+    "https://www.market-in.gr/el-gr/prosfores",
+    "https://www.market-in.gr/el-gr/psari-thalassina",
 ];
 const LIDL_URLS = [
-    "https://www.lidl-hellas.gr/c/fagito-poto/s10068374",
-    "https://www.lidl-hellas.gr/c/koyzina-noikokyrio/s10068166",
-    "https://www.lidl-hellas.gr/c/ergaleia-eidi-kipoy/s10068222",
-    "https://www.lidl-hellas.gr/c/athlitiki-endysi-anapsychi/s10068226",
-    "https://www.lidl-hellas.gr/c/oikiakos-exoplismos/s10068371",
-    "https://www.lidl-hellas.gr/c/moda-axesoyar/s10068373",
-    "https://www.lidl-hellas.gr/c/vrefika-paidika-eidi/s10068225",
+    // Main supermarket categories
+    "https://www.lidl-hellas.gr/c/fagito-poto/s10068374",           // Φαγητό & Ποτό (all food)
+    "https://www.lidl-hellas.gr/c/freska-proionta/s10068375",       // Φρέσκα Προϊόντα
+    "https://www.lidl-hellas.gr/c/prosfores/s10021508",             // Προσφορές
+    // Non-food categories
+    "https://www.lidl-hellas.gr/c/koyzina-noikokyrio/s10068166",    // Κουζίνα & Νοικοκυριό
+    "https://www.lidl-hellas.gr/c/ergaleia-eidi-kipoy/s10068222",   // Εργαλεία & Είδη Κήπου
+    "https://www.lidl-hellas.gr/c/athlitiki-endysi-anapsychi/s10068226", // Αθλητισμός
+    "https://www.lidl-hellas.gr/c/oikiakos-exoplismos/s10068371",   // Οικιακός Εξοπλισμός
+    "https://www.lidl-hellas.gr/c/moda-axesoyar/s10068373",         // Μόδα & Αξεσουάρ
+    "https://www.lidl-hellas.gr/c/vrefika-paidika-eidi/s10068225",  // Βρεφικά & Παιδικά
 ];
 
 const STORE_CONFIGS = {
@@ -246,6 +312,13 @@ const extractDataInBrowser = (storeName, config) => {
                 : src) || null;
             // Final filter for invalid URLs
             if (imgUrl && imgUrl.length < 10) imgUrl = null;
+            // Convert relative URLs to absolute using the page origin
+            if (imgUrl && !imgUrl.startsWith('http') && !imgUrl.startsWith('//')) {
+                imgUrl = imgUrl.startsWith('/')
+                    ? window.location.origin + imgUrl
+                    : window.location.origin + '/' + imgUrl;
+            }
+            if (imgUrl && imgUrl.startsWith('//')) imgUrl = 'https:' + imgUrl;
         }
 
         // LIDL-specific: validity date + gift/discount text
@@ -344,15 +417,29 @@ async function scrapeAB(page, storeName, config, allFound) {
     }
 }
 async function scrapeGalaxias(page, storeName, config, allFound) {
+    // Wait for product cards to appear before starting scroll loop
+    try { await page.waitForSelector(config.card, { timeout: 20000 }); } catch(e) {}
+    await sleep(1500);
+
     let fails = 0;
-    while (fails < 5) {
+    while (fails < 12) {
         const products = await page.evaluate(extractDataInBrowser, storeName, config);
         let addedNew = false;
         products.forEach(p => { if (!allFound.has(p.normalizedName)) { allFound.set(p.normalizedName, p); addedNew = true; }});
         if (addedNew) { fails = 0; } else { fails++; }
-        for (let i = 0; i < 20; i++) { await page.keyboard.press('PageDown'); await sleep(30); }
-        await page.keyboard.press('PageUp'); await sleep(100); await page.keyboard.press('PageDown');
-        await sleep(1000); 
+
+        // Try clicking a "load more" button if present
+        const clickedMore = await page.evaluate(() => {
+            const btn = document.querySelector('button[class*="load-more"], a[class*="load-more"], button[class*="more"], [data-testid*="load-more"]');
+            if (btn && btn.offsetParent !== null) { btn.click(); return true; }
+            return false;
+        });
+        if (clickedMore) { await sleep(2000); continue; }
+
+        // Aggressive scroll to trigger virtual-scroll / lazy rendering
+        for (let i = 0; i < 25; i++) { await page.keyboard.press('PageDown'); await sleep(25); }
+        await page.keyboard.press('PageUp'); await sleep(80); await page.keyboard.press('PageDown');
+        await sleep(1200);
     }
 }
 async function scrapeMyMarket(page, storeName, config, allFound) {
@@ -404,18 +491,26 @@ async function scrapeMarketIn(page, storeName, config, allFound) {
     }
 }
 async function scrapeMasoutis(page, storeName, config, allFound) {
+    // Wait for any product card to appear first
+    try { await page.waitForSelector(config.card, { timeout: 20000 }); } catch(e) {}
+    await sleep(1000);
+
     let fails = 0;
-    while (fails < 15) {
+    while (fails < 20) {
         const products = await page.evaluate(extractDataInBrowser, storeName, config);
         let addedNew = false;
         products.forEach(p => { if (!allFound.has(p.normalizedName)) { allFound.set(p.normalizedName, p); addedNew = true; }});
         if (addedNew) { fails = 0; } else { fails++; }
-        await page.keyboard.press('PageDown');
-        await page.evaluate((sel) => {
+
+        // Scroll down multiple steps to trigger infinite scroll
+        for (let i = 0; i < 3; i++) { await page.keyboard.press('PageDown'); await sleep(150); }
+
+        // Wait for spinner loader to finish if it appeared
+        const isLoading = await page.evaluate((sel) => {
             const loader = document.querySelector(sel);
-            if (loader && loader.style.display !== 'none') return true;
-            return false;
-        }, config.loader).then(isWaiting => isWaiting ? sleep(1500) : sleep(300));
+            return loader && loader.style.display !== 'none';
+        }, config.loader);
+        await sleep(isLoading ? 2000 : 400);
     }
 }
 async function scrapeKritikos(page, storeName, config, allFound) {
@@ -484,7 +579,9 @@ async function scrapeLidl(page, storeName, config, allFound) {
                     const stock = data.stockAvailability || {};
                     if (stock.available === false) return;
 
-                    const imgUrl = (data.media && data.media[0] && data.media[0].url) || data.imageUrl || null;
+                    let imgUrl = (data.media && data.media[0] && data.media[0].url) || data.imageUrl || null;
+                    if (imgUrl && imgUrl.startsWith('//')) imgUrl = 'https:' + imgUrl;
+                    else if (imgUrl && !imgUrl.startsWith('http')) imgUrl = window.location.origin + (imgUrl.startsWith('/') ? imgUrl : '/' + imgUrl);
                     const packagingText = (priceObj.packaging && priceObj.packaging.text) || '';
                     const basePriceText = (priceObj.basePrice && priceObj.basePrice.text) || '';
 
@@ -644,27 +741,42 @@ async function runWebScraper(targetStore = null) {
     console.log(`🚀 Θα σαρωθούν συνολικά ${totalJobs} σελίδες.`);
     drawProgressBar(0, totalJobs, 'Εκκίνηση...');
 
+    // Resolve Chrome executable: prefer system Chrome so no separate Puppeteer download is needed
+    const SYSTEM_CHROME_PATHS = [
+        'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+        'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
+        '/usr/bin/google-chrome-stable',
+        '/usr/bin/google-chrome',
+        '/usr/bin/chromium-browser',
+        '/usr/bin/chromium',
+    ];
+    let executablePath;
+    for (const p of SYSTEM_CHROME_PATHS) {
+        if (fs.existsSync(p)) { executablePath = p; break; }
+    }
+
     const cluster = await Cluster.launch({
-        concurrency: Cluster.CONCURRENCY_PAGE, 
-        maxConcurrency: 10, 
-        timeout: 600000, 
+        concurrency: Cluster.CONCURRENCY_PAGE,
+        maxConcurrency: 10,
+        timeout: 600000,
         puppeteerOptions: {
             headless: "new",
-            defaultViewport: null, 
+            defaultViewport: null,
+            ...(executablePath ? { executablePath } : {}),
             args:[
-                '--no-sandbox', 
-                '--disable-setuid-sandbox', 
+                '--no-sandbox',
+                '--disable-setuid-sandbox',
                 '--disable-blink-features=AutomationControlled',
-                '--disable-web-security', 
+                '--disable-web-security',
                 '--disable-features=IsolateOrigins,site-per-process',
-                '--disable-gpu', 
-                '--disable-dev-shm-usage', 
-                '--no-first-run', 
-                '--no-zygote',             
-                '--disable-extensions',         
-                '--js-flags="--max-old-space-size=256"', 
-                '--disable-notifications',      
-                '--no-default-browser-check'    
+                '--disable-gpu',
+                '--disable-dev-shm-usage',
+                '--no-first-run',
+                '--no-zygote',
+                '--disable-extensions',
+                '--js-flags=--max-old-space-size=256',
+                '--disable-notifications',
+                '--no-default-browser-check'
             ]
         }
     });
@@ -684,5 +796,5 @@ async function runWebScraper(targetStore = null) {
 // 🟢 Το API για να βλέπει το Frontend αν τρέχει το Scraper
 const getScrapingStatus = () => { return globalIsScraping; };
 
-const startCronJobs = () => { cron.schedule('1 1 * * 1', runWebScraper); };
+const startCronJobs = () => { cron.schedule('20 8 * * *', runWebScraper); };
 module.exports = { startCronJobs, runWebScraper, getScrapingStatus };

@@ -1,0 +1,42 @@
+name: Daily Supermarket Scrape
+
+on:
+  schedule:
+    # Every day at 08:20 UTC (= 11:20 EEST / 10:20 EET)
+    - cron: '20 8 * * *'
+  # Allow manual trigger from GitHub UI
+  workflow_dispatch:
+    inputs:
+      store:
+        description: 'Specific store to scrape (leave empty for all)'
+        required: false
+        default: ''
+
+jobs:
+  trigger-scrape:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Wake up Render backend
+        # Render free tier sleeps after 15 min. Ping health first so it wakes.
+        run: |
+          echo "🔔 Waking up backend..."
+          curl -sf --max-time 90 "${{ secrets.BACKEND_URL }}/api/health" || echo "⚠️ Health ping failed (backend may still be waking)"
+          sleep 15
+
+      - name: Trigger scrape
+        run: |
+          STORE="${{ github.event.inputs.store }}"
+          URL="${{ secrets.BACKEND_URL }}/api/force-scrape?secret=${{ secrets.CRON_SECRET }}"
+          if [ -n "$STORE" ]; then
+            URL="${URL}&store=${STORE}"
+          fi
+          echo "🚀 Calling: ${URL//${{ secrets.CRON_SECRET }}/***}"
+          RESPONSE=$(curl -sf --max-time 30 "$URL")
+          echo "✅ Response: $RESPONSE"
+
+      - name: Trigger recipe scrape (after products)
+        run: |
+          echo "👨‍🍳 Triggering recipe refresh..."
+          curl -sf --max-time 30 "${{ secrets.BACKEND_URL }}/api/force-recipes?secret=${{ secrets.CRON_SECRET }}" || echo "⚠️ Recipe scrape trigger failed"
