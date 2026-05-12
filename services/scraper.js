@@ -383,54 +383,84 @@ async function scrapeSklavenitis(page, storeName, config, allFound) {
         await page.keyboard.press('PageDown'); await sleep(400);
     }
 }
-async function scrapeAB(page, storeName, config, allFound) {
-    let fails = 0;
-    
-    // ΠΕΡΙΜΕΝΟΥΜΕ ΝΑ ΦΥΓΕΙ ΤΟ ΑΡΧΙΚΟ LOADING ANIMATION
-    try { 
-        await page.waitForSelector('[data-testid="loading-animation"]', { hidden: true, timeout: 15000 }); 
-    } catch(e) {}
-    
-    // ΠΕΡΙΜΕΝΟΥΜΕ ΤΙΣ ΚΑΡΤΕΣ ΤΩΝ ΠΡΟΪΟΝΤΩΝ
-    try { 
-        await page.waitForSelector(config.card, { timeout: 15000 }); 
-    } catch(e) {}
+async function scrapeAB(page, storeName, config, allFound, categoryUrl) {
+    // ΑΒ uses a GraphQL API — no browser scraping needed, call directly
+    // API: GET https://www.ab.gr/api/v1/?operationName=GetCategoryProductSearch&variables=...
+    // Requires Content-Type: application/json header to bypass CSRF check
+    const axios = require('axios');
+    const AB_GQL_HASH = '189e7cb5a6ba93e55dc63e4eef0ad063ca3e8aedb0bdf2a58124e02d5d5d69a2';
+    const AB_IMG_BASE = 'https://static.ab.gr';
 
-    while (fails < 15) {
-        const products = await page.evaluate(extractDataInBrowser, storeName, config);
-        let addedNew = false;
-        products.forEach(p => { 
-            if (!allFound.has(p.normalizedName)) { 
-                allFound.set(p.normalizedName, p); 
-                addedNew = true; 
-            }
+    // Extract category code from URL: /c/001 → "001"
+    const categoryCode = (categoryUrl || '').match(/\/c\/(\w+)$/)?.[1];
+    if (!categoryCode) {
+        console.log(`⚠️ AB: could not extract category from ${categoryUrl}`);
+        return;
+    }
+
+    const fetchPage = async (pageNum) => {
+        const vars = encodeURIComponent(JSON.stringify({ lang: 'gr', searchQuery: '', category: categoryCode, pageNumber: pageNum, pageSize: 20, filterFlag: true, fields: 'PRODUCT_TILE', plainChildCategories: true }));
+        const ext = encodeURIComponent(JSON.stringify({ persistedQuery: { version: 1, sha256Hash: AB_GQL_HASH } }));
+        const url = `https://www.ab.gr/api/v1/?operationName=GetCategoryProductSearch&variables=${vars}&extensions=${ext}`;
+        const { data } = await axios.get(url, {
+            headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36', 'Referer': categoryUrl },
+            timeout: 15000,
         });
-        
-        if (addedNew) { 
-            fails = 0; 
-        } else { 
-            fails++; 
+        return data;
+    };
+
+    try {
+        // First page to get total count
+        const first = await fetchPage(0);
+        const pagination = first?.data?.categoryProductSearch?.pagination || {};
+        const totalPages = pagination.totalPages || 1;
+        const totalResults = pagination.totalResults || 0;
+        console.log(`  AB [${categoryCode}]: ${totalResults} products across ${totalPages} pages`);
+
+        const processProducts = (products) => {
+            (products || []).forEach(p => {
+                try {
+                    const name = (p.name || '').trim();
+                    if (!name) return;
+                    const priceNum = parseFloat(p.price?.value) || 0;
+                    if (!priceNum) return;
+
+                    const oldPriceNum = p.price?.wasPrice?.value ? parseFloat(p.price.wasPrice.value) : null;
+                    const isSale = !!(p.price?.showStrikethroughPrice || oldPriceNum || (p.promoBadges && p.promoBadges.length > 0));
+
+                    let imgUrl = null;
+                    const rawImg = p.images?.[0]?.url || p.image || '';
+                    if (rawImg) imgUrl = rawImg.startsWith('http') ? rawImg : AB_IMG_BASE + rawImg;
+
+                    const normalizedName = name.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+                    if (!allFound.has(normalizedName)) {
+                        allFound.set(normalizedName, { name, normalizedName, supermarket: storeName, price: priceNum, oldPrice: oldPriceNum, isOnSale: isSale, is1plus1: false, imageUrl: imgUrl, discountPercent: null });
+                    }
+                } catch(e) {}
+            });
+        };
+
+        processProducts(first?.data?.categoryProductSearch?.products);
+
+        // Fetch remaining pages in parallel (max 3 at a time)
+        for (let i = 1; i < totalPages; i += 3) {
+            const batch = [];
+            for (let j = i; j < Math.min(i + 3, totalPages); j++) batch.push(fetchPage(j));
+            const results = await Promise.allSettled(batch);
+            results.forEach(r => { if (r.status === 'fulfilled') processProducts(r.value?.data?.categoryProductSearch?.products); });
         }
-        
-        // Σκρολάρουμε δυναμικά προς τα κάτω για να "δούμε" τον loader και να ξεκινήσει το φόρτωμα
-        await page.evaluate(() => {
-            window.scrollBy(0, window.innerHeight * 2);
-        });
-        
-        // Δίνουμε 0.5s να εμφανιστεί ο Loader στο DOM (αν έχει κι άλλα προϊόντα)
-        await sleep(500);
-
-        // Ελέγχουμε αν εμφανίστηκε ο Loader
-        const hasSpinner = await page.evaluate(() => {
-            return !!document.querySelector('[data-testid="loading-spinner"]');
-        });
-
-        if (hasSpinner) {
-            // Αν υπάρχει ο Loader, περιμένουμε λίγο παραπάνω για να φορτώσουν τα νέα προϊόντα (να γίνει το API call)
-            await sleep(2500); 
-        } else {
-            // Αν δεν υπάρχει, ίσως έχουμε φτάσει στο τέλος ή αργεί το layout, κάνουμε ένα μικρό wait
-            await sleep(600);
+    } catch(e) {
+        console.log(`⚠️ AB API error for category ${categoryCode}: ${e.message}. Falling back to Puppeteer...`);
+        // Fallback: try Puppeteer if API fails
+        try { await page.waitForSelector(config.card, { timeout: 20000 }); } catch(e2) {}
+        let fails2 = 0;
+        while (fails2 < 8) {
+            const prods = await page.evaluate(extractDataInBrowser, storeName, config);
+            let addedNew = false;
+            prods.forEach(p => { if (!allFound.has(p.normalizedName)) { allFound.set(p.normalizedName, p); addedNew = true; } });
+            if (addedNew) fails2 = 0; else fails2++;
+            await page.evaluate(() => window.scrollBy(0, window.innerHeight * 3));
+            await sleep(1500);
         }
     }
 }
@@ -689,7 +719,7 @@ async function scrapeTask({ page, data: { url, storeName } }) {
             // 🎯 DELEGATION
             switch (storeName) {
                 case 'Σκλαβενίτης': await scrapeSklavenitis(page, storeName, config, allFound); break;
-                case 'ΑΒ Βασιλόπουλος': await scrapeAB(page, storeName, config, allFound); break;
+                case 'ΑΒ Βασιλόπουλος': await scrapeAB(page, storeName, config, allFound, url); break;
                 case 'Γαλαξίας': await scrapeGalaxias(page, storeName, config, allFound); break;
                 case 'MyMarket': await scrapeMyMarket(page, storeName, config, allFound); break;
                 case 'Market In': await scrapeMarketIn(page, storeName, config, allFound); break;
