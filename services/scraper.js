@@ -812,32 +812,46 @@ async function runWebScraper(targetStore = null) {
         if (fs.existsSync(p)) { executablePath = p; break; }
     }
 
+    // ── Cluster profile ────────────────────────────────────────────────────
+    // Render free tier : maxConcurrency=3, CONCURRENCY_BROWSER, --single-process
+    // Local high-perf   : maxConcurrency=8, CONCURRENCY_CONTEXT (set via env)
+    const maxConcurrency = parseInt(process.env.SCRAPER_MAX_CONCURRENCY || '3', 10);
+    const concurrencyMode = process.env.SCRAPER_CONCURRENCY_MODE === 'context'
+        ? Cluster.CONCURRENCY_CONTEXT
+        : Cluster.CONCURRENCY_BROWSER;
+    const isLocal = process.env.SCRAPER_PROFILE === 'local';
+    const oldSpaceSize = isLocal ? '2048' : '512';
+
+    console.log(`🔧 Scraper profile: ${isLocal ? 'LOCAL' : 'RENDER'} | concurrency=${maxConcurrency} | mode=${isLocal ? 'CONTEXT' : 'BROWSER'}`);
+
     // Render free tier: 512MB RAM. Each Chrome instance ~150-200MB.
     // maxConcurrency=3 → ~450-600MB peak, safe for free tier.
-    // CONCURRENCY_BROWSER: one browser per slot (isolated, lower memory than PAGE per session)
+    // CONCURRENCY_BROWSER: one browser per slot (isolated, lower memory than CONTEXT)
+    const clusterArgs = [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-blink-features=AutomationControlled',
+        '--disable-gpu',
+        '--disable-dev-shm-usage',
+        '--no-first-run',
+        '--no-zygote',
+        '--disable-extensions',
+        `--js-flags=--max-old-space-size=${oldSpaceSize}`,
+        '--disable-notifications',
+        '--no-default-browser-check',
+    ];
+    // single-process only on Render (saves ~50MB but disables crash recovery)
+    if (!isLocal) clusterArgs.push('--single-process', '--memory-pressure-off');
+
     const cluster = await Cluster.launch({
-        concurrency: Cluster.CONCURRENCY_BROWSER,
-        maxConcurrency: 3,
+        concurrency: concurrencyMode,
+        maxConcurrency,
         timeout: 600000,
         puppeteerOptions: {
-            headless: "new",
+            headless: isLocal ? false : "new",
             defaultViewport: { width: 1280, height: 800 },
             ...(executablePath ? { executablePath } : {}),
-            args:[
-                '--no-sandbox',
-                '--disable-setuid-sandbox',
-                '--disable-blink-features=AutomationControlled',
-                '--disable-gpu',
-                '--disable-dev-shm-usage',
-                '--no-first-run',
-                '--no-zygote',
-                '--disable-extensions',
-                '--js-flags=--max-old-space-size=512',
-                '--disable-notifications',
-                '--no-default-browser-check',
-                '--single-process',
-                '--memory-pressure-off'
-            ]
+            args: clusterArgs,
         }
     });
 

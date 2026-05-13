@@ -313,6 +313,48 @@ router.get('/refresh-premium', authMiddleware, async (req, res) => {
   }
 });
 
+// ── 10. ADMIN: TOGGLE isPremium ───────────────────────────────────────────────
+// Protected by ADMIN_SECRET env var. Used to manually grant/revoke premium.
+// Usage: POST /api/auth/admin/set-premium  { email, isPremium, secret }
+router.post('/admin/set-premium', async (req, res) => {
+  const { email, isPremium, secret } = req.body;
+  const adminSecret = process.env.ADMIN_SECRET;
+
+  if (!adminSecret || secret !== adminSecret) {
+    return res.status(403).json({ message: 'Απαγορεύεται.' });
+  }
+  if (!email) return res.status(400).json({ message: 'Απαιτείται email.' });
+
+  try {
+    const user = await User.findOneAndUpdate(
+      { email: email.toLowerCase().trim() },
+      { $set: { isPremium: !!isPremium, premiumType: isPremium ? 'lifetime' : null } },
+      { new: true }
+    ).select('-password');
+
+    if (!user) return res.status(404).json({ message: 'Χρήστης δεν βρέθηκε.' });
+
+    console.log(`🔑 Admin ${isPremium ? 'granted' : 'revoked'} premium for ${email}`);
+    res.json({ success: true, user: safeUser(user) });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// ── 11. ADMIN: LIST USERS (lightweight) ──────────────────────────────────────
+router.get('/admin/users', async (req, res) => {
+  const { secret } = req.query;
+  if (!process.env.ADMIN_SECRET || secret !== process.env.ADMIN_SECRET) {
+    return res.status(403).json({ message: 'Απαγορεύεται.' });
+  }
+  try {
+    const users = await User.find({}).select('name email isPremium premiumType trialEndsAt createdAt').lean();
+    res.json(users.map(u => safeUser(u)));
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
 // ── Legacy: notify-friend (kept for backward compat, calls add-friend logic) ──
 router.post('/notify-friend', authMiddleware, async (req, res) => {
   req.body.targetShareKey = req.body.targetShareKey || req.body.from?.shareKey;
