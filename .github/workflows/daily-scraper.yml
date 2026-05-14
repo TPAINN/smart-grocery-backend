@@ -1,9 +1,9 @@
 name: 🛒 Daily Grocery Scraper
 
 on:
-  # Τρέχει κάθε μέρα 01:00 UTC = 04:00 EET (καλοκαίρι) / 03:00 EET (χειμώνας)
+  # Τρέχει κάθε μέρα 05:00 UTC = 08:00 EEST (καλοκαίρι) / 07:00 EET (χειμώνας)
   schedule:
-    - cron: '0 1 * * *'
+    - cron: '0 5 * * *'
 
   # Κουμπί Manual Run στο GitHub → Actions tab (για testing)
   workflow_dispatch:
