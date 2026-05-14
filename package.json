@@ -6,6 +6,7 @@
   "scripts": {
     "start": "node server.js",
     "scrape:all": "node runAll.js",
+    "scrape:render": "node renderRunAll.js",
     "scrape:local": "node scripts/scrape-local.js",
     "scrape:local:lidl": "node scripts/scrape-local.js Lidl",
     "scrape:local:ab": "node scripts/scrape-local.js AB",

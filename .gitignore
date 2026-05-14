@@ -20,6 +20,10 @@ runSingle.js
 test_scoring.js
 redesign_*.js
 redesign_*.mjs
+# renderRunAll.js is intentionally NOT listed here — it must be in git for Render
+
+# ── Puppeteer Chrome cache (downloaded during build, not source code) ─────────
+.puppeteer-cache/
 
 # ── Logs ──────────────────────────────────────────────────────────────────────
 *.log
