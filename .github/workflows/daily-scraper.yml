@@ -30,7 +30,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '24'   # Node 24 LTS — Node 20 deprecated on GH Actions June 2026
           cache: 'npm'
 
       # ── 3. Εγκατάσταση dependencies ─────────────────────────────────────────
@@ -51,12 +51,12 @@ jobs:
           # Secret: βάλε στο GitHub → repo Settings → Secrets → MONGO_URI
           MONGO_URI: ${{ secrets.MONGO_URI }}
 
-          # GitHub runner έχει 7GB RAM → μπορούμε να βάλουμε 5 workers
-          # (5 × 160MB = 800MB Chrome + ~400MB Node = ~1.2GB total — άνετα)
-          SCRAPER_PROFILE: render
+          # 'github' profile = no --single-process (fixes Sklavenitis/ΑΒ Session closed errors)
+          # 5 workers × ~200MB Chrome = ~1GB + 3GB Node = ~4GB total (7GB runner — άνετα)
+          SCRAPER_PROFILE: github
           SCRAPER_MAX_CONCURRENCY: '5'
 
-          # Node.js heap: 3GB (χρησιμοποιούμε μέχρι ~1/2 της διαθέσιμης RAM)
+          # Node.js heap: 3GB
           NODE_OPTIONS: '--max-old-space-size=3072'
 
           PUPPETEER_CACHE_DIR: /home/runner/.cache/puppeteer

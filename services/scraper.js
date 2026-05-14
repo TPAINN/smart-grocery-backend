@@ -819,10 +819,12 @@ async function runWebScraper(targetStore = null) {
     const concurrencyMode = process.env.SCRAPER_CONCURRENCY_MODE === 'context'
         ? Cluster.CONCURRENCY_CONTEXT
         : Cluster.CONCURRENCY_BROWSER;
-    const isLocal = process.env.SCRAPER_PROFILE === 'local';
-    const oldSpaceSize = isLocal ? '2048' : '512';
+    const isLocal   = process.env.SCRAPER_PROFILE === 'local';
+    const isGithub  = process.env.SCRAPER_PROFILE === 'github';  // GH Actions: lots of RAM, no --single-process
+    const oldSpaceSize = isLocal ? '2048' : (isGithub ? '3072' : '512');
 
-    console.log(`🔧 Scraper profile: ${isLocal ? 'LOCAL' : 'RENDER'} | concurrency=${maxConcurrency} | mode=${isLocal ? 'CONTEXT' : 'BROWSER'}`);
+    const profileLabel = isLocal ? 'LOCAL' : isGithub ? 'GITHUB-ACTIONS' : 'RENDER';
+    console.log(`🔧 Scraper profile: ${profileLabel} | concurrency=${maxConcurrency} | mode=BROWSER`);
 
     // Render free tier: 512MB RAM. Each Chrome instance ~150-200MB.
     // maxConcurrency=3 → ~450-600MB peak, safe for free tier.
@@ -840,8 +842,10 @@ async function runWebScraper(targetStore = null) {
         '--disable-notifications',
         '--no-default-browser-check',
     ];
-    // single-process only on Render (saves ~50MB but disables crash recovery)
-    if (!isLocal) clusterArgs.push('--single-process', '--memory-pressure-off');
+    // --single-process saves ~50MB on Render's 512MB plan but disables crash recovery
+    // and causes "Session closed" errors on heavy sites (Sklavenitis, ΑΒ).
+    // GitHub Actions has 7GB RAM — never use single-process there.
+    if (!isLocal && !isGithub) clusterArgs.push('--single-process', '--memory-pressure-off');
 
     const cluster = await Cluster.launch({
         concurrency: concurrencyMode,
