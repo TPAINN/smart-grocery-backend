@@ -27,6 +27,11 @@
 - **TheMealDB translation**: Uses static MEAL_NAMES_GR dict → AI batch → MyMemory fallback. Italian dish names (Alfredo, Carbonara variants) and Asian dishes often missing from dict.
 - **callAIText** is separate from **callAI** — used for translation tasks (returns plain text, not JSON).
 
+- **runAll.js is gitignored** — it's a local-only admin script. The committed entry point for Render is `renderRunAll.js`. Never reference runAll.js in deployment config.
+- **Render cron job**: `render.yaml` defines the Blueprint. Schedule is UTC. Frankfurt region. MONGO_URI must be pasted as a secret in Render dashboard (sync:false in YAML).
+- **Puppeteer on Render**: `PUPPETEER_CACHE_DIR=/opt/render/project/src/.puppeteer-cache` + `SCRAPER_PROFILE=render` (triggers --no-sandbox, headless, --single-process flags).
+- **scraper.js SCRAPER_PROFILE**: 'local' = headed Chrome + CONTEXT concurrency + 2048MB heap. 'render' (default) = headless + BROWSER concurrency + 512MB heap + --single-process.
+
 ## Do-Not-Repeat
 
 <!-- Mistakes made and corrected. Each entry prevents the same mistake recurring. -->
