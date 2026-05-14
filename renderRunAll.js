@@ -26,8 +26,11 @@ dns.setServers(['1.1.1.1', '1.0.0.1', '8.8.8.8']);
 const mongoose = require('mongoose');
 const { runWebScraper } = require('./services/scraper');
 
-// ─── Force Render profile BEFORE scraper module uses it ─────────────────────
-process.env.SCRAPER_PROFILE = 'render';
+// ─── Set scraper profile (respect env var so GitHub Actions can pass 'github') ──
+// Workflow env: SCRAPER_PROFILE=github  → no --single-process (7GB RAM, full Chrome)
+// Render env:   SCRAPER_PROFILE=render  → --single-process (512MB RAM)
+// Default (unset): render (safe conservative choice)
+if (!process.env.SCRAPER_PROFILE) process.env.SCRAPER_PROFILE = 'render';
 if (!process.env.SCRAPER_MAX_CONCURRENCY) process.env.SCRAPER_MAX_CONCURRENCY = '3';
 
 // ─── Structured logger ───────────────────────────────────────────────────────
