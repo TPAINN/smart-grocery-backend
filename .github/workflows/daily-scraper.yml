@@ -1,0 +1,95 @@
+name: 🛒 Daily Grocery Scraper
+
+on:
+  # Τρέχει κάθε μέρα 01:00 UTC = 04:00 EET (καλοκαίρι) / 03:00 EET (χειμώνας)
+  schedule:
+    - cron: '0 1 * * *'
+
+  # Κουμπί Manual Run στο GitHub → Actions tab (για testing)
+  workflow_dispatch:
+    inputs:
+      store:
+        description: 'Specific store to scrape (leave empty for ALL)'
+        required: false
+        default: ''
+
+jobs:
+  scrape:
+    name: Scrape all supermarkets
+    runs-on: ubuntu-latest
+
+    # Σκοτώνει τη δουλειά αν πάρει πάνω από 3 ώρες (extra safety net)
+    timeout-minutes: 180
+
+    steps:
+      # ── 1. Κατέβασε τον κώδικα ─────────────────────────────────────────────
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      # ── 2. Node.js με npm cache ─────────────────────────────────────────────
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      # ── 3. Εγκατάσταση dependencies ─────────────────────────────────────────
+      - name: Install dependencies
+        run: npm ci
+
+      # ── 4. Chrome για Puppeteer ─────────────────────────────────────────────
+      # GitHub Actions ubuntu-latest έχει Chrome ήδη αλλά καλό να το κάνουμε
+      # explicit ώστε να παίρνει την ίδια έκδοση που περιμένει το puppeteer.
+      - name: Install Puppeteer Chrome
+        run: npx puppeteer browsers install chrome
+        env:
+          PUPPETEER_CACHE_DIR: /home/runner/.cache/puppeteer
+
+      # ── 5. Τρέξε το scraper ──────────────────────────────────────────────────
+      - name: Run full scraper
+        env:
+          # Secret: βάλε στο GitHub → repo Settings → Secrets → MONGO_URI
+          MONGO_URI: ${{ secrets.MONGO_URI }}
+
+          # GitHub runner έχει 7GB RAM → μπορούμε να βάλουμε 5 workers
+          # (5 × 160MB = 800MB Chrome + ~400MB Node = ~1.2GB total — άνετα)
+          SCRAPER_PROFILE: render
+          SCRAPER_MAX_CONCURRENCY: '5'
+
+          # Node.js heap: 3GB (χρησιμοποιούμε μέχρι ~1/2 της διαθέσιμης RAM)
+          NODE_OPTIONS: '--max-old-space-size=3072'
+
+          PUPPETEER_CACHE_DIR: /home/runner/.cache/puppeteer
+
+          # Αν πατήθηκε manual trigger με συγκεκριμένο store, χρησιμοποίησέ το
+          TARGET_STORE: ${{ github.event.inputs.store }}
+
+        run: |
+          if [ -n "$TARGET_STORE" ]; then
+            echo "🏪 Manual run — scraping only: $TARGET_STORE"
+            node -e "
+              require('node:dns/promises').setServers(['1.1.1.1','8.8.8.8']);
+              process.env.SCRAPER_PROFILE='render';
+              const mongoose = require('mongoose');
+              const { runWebScraper } = require('./services/scraper');
+              (async () => {
+                await mongoose.connect(process.env.MONGO_URI, { maxPoolSize:3, serverSelectionTimeoutMS:15000 });
+                await runWebScraper(process.env.TARGET_STORE);
+                await mongoose.disconnect();
+                process.exit(0);
+              })().catch(e => { console.error(e); process.exit(1); });
+            "
+          else
+            echo "🚀 Scheduled run — scraping ALL stores"
+            node renderRunAll.js
+          fi
+
+      # ── 6. Σύνοψη στο GitHub Actions summary ───────────────────────────────
+      - name: Job summary
+        if: always()
+        run: |
+          echo "## 🛒 Scraper Job Summary" >> $GITHUB_STEP_SUMMARY
+          echo "- **Date**: $(date -u '+%Y-%m-%d %H:%M UTC')" >> $GITHUB_STEP_SUMMARY
+          echo "- **Status**: ${{ job.status }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Workers**: $SCRAPER_MAX_CONCURRENCY" >> $GITHUB_STEP_SUMMARY
+          echo "- **Trigger**: ${{ github.event_name }}" >> $GITHUB_STEP_SUMMARY
