@@ -142,7 +142,7 @@ const STORE_CONFIGS = {
     'MyMarket': { card: 'article.product--teaser', name: '.line-clamp-2', oldPrice: '.diagonal-line', promo: '.product-note-tag, [class*="badge-promo"], [class*="offer-label"]', nextBtn: 'a[rel="next"]', img: '.teaser-image-container img, picture img, img[loading="lazy"]' },
     'Μασούτης': { card: '.product', name: '.productTitle', price: '.pStartPrice', oldPrice: '.pStartPrice', promo: '.pDscntPercent', loader: '.lds-spinner', img: '.productImage, .catImgCont img, img' },
     'Market In': { card: '.product-grid-box, .product', name: '.product-ttl', price: '.new-price', oldPrice: '.old-price', promo: '.disc-value', nextBtn: 'span.material-icons, a.next', img: '.product-thumb img, img[src*="market-in"]' },
-    'Γαλαξίας': { card: 'product-card', name: 'a.text-black-i', price: 'span[style*="rgb(2, 88, 165)"], .current-price, .price-label, [class*="price"]:not([class*="old"]):not([class*="base"])', promo: '.bg-secondary.text-primary', img: 'product-card img, img[src*="galaxias.shop/api/media"], img[src*="galaxias"]' },
+    'Γαλαξίας': { card: 'product-card', name: 'a.text-black-i', price: 'span[style*="rgb(2, 88, 165)"], .current-price, .price-label, [class*="price"]:not([class*="old"]):not([class*="base"])', promo: '.bg-secondary.text-primary', img: 'img[src*="galaxias"], img[src*="api/media"], img[data-src*="galaxias"], img[lazy-src*="galaxias"], product-card img' },
     'Lidl': {
         card: '.odsc-tile, .product-grid-box',
         name: '.product-grid-box__title',
@@ -151,7 +151,7 @@ const STORE_CONFIGS = {
         promo: '.ods-price__box-content-text-el',
         availability: '.ods-badge__label',
         loadMore: '.s-load-more__button',
-        img: 'img.odsc-image-gallery__image, img[class*="gallery"], img[class*="product-image"]',
+        img: 'img[src*="lidl"], img[data-src*="lidl"], img.odsc-image-gallery__image, img[class*="product"], picture img, img[loading="lazy"]',
     },
 };
 
@@ -315,19 +315,38 @@ const extractDataInBrowser = (storeName, config) => {
             });
         }
         
-        // Εικόνα — try config.img selector, fallback to any img, check lazy-load attrs
-        const imgEl = (config.img ? card.querySelector(config.img) : null) || card.querySelector('img');
-        if (imgEl) {
-            const src = imgEl.getAttribute('src') || '';
-            imgUrl = (!src || src.startsWith('data:image/gif') || src.startsWith('data:') || src.length < 10
-                ? (imgEl.getAttribute('data-src') ||
-                   imgEl.getAttribute('data-lazy-src') ||
-                   imgEl.getAttribute('data-original') ||
-                   imgEl.getAttribute('data-lazy') ||
-                   (imgEl.getAttribute('srcset') || '').split(',')[0].trim().split(' ')[0] ||
-                   (imgEl.getAttribute('data-srcset') || '').split(',')[0].trim().split(' ')[0] ||
+        // Εικόνα — try config.img selector, shadow-DOM pierce for Web Components, fallback to any img
+        let imgEl = (config.img ? card.querySelector(config.img) : null) || card.querySelector('img');
+        // Shadow DOM pierce (Galaxias uses <product-card> custom element)
+        if (!imgEl && card.shadowRoot) {
+            imgEl = (config.img ? card.shadowRoot.querySelector(config.img) : null) || card.shadowRoot.querySelector('img');
+        }
+        // Try shadow root of child custom elements
+        if (!imgEl) {
+            const customEls = card.querySelectorAll('*');
+            for (const el of customEls) {
+                if (el.shadowRoot) {
+                    const found = el.shadowRoot.querySelector('img');
+                    if (found) { imgEl = found; break; }
+                }
+            }
+        }
+        const extractSrc = (el) => {
+            if (!el) return null;
+            const src = el.getAttribute('src') || '';
+            return (!src || src.startsWith('data:image/gif') || src.startsWith('data:') || src.length < 10
+                ? (el.getAttribute('data-src') ||
+                   el.getAttribute('data-lazy-src') ||
+                   el.getAttribute('data-original') ||
+                   el.getAttribute('data-lazy') ||
+                   el.getAttribute('data-image') ||
+                   (el.getAttribute('srcset') || '').split(',')[0].trim().split(' ')[0] ||
+                   (el.getAttribute('data-srcset') || '').split(',')[0].trim().split(' ')[0] ||
                    src)
                 : src) || null;
+        };
+        if (imgEl) {
+            imgUrl = extractSrc(imgEl);
             // Final filter for invalid URLs
             if (imgUrl && imgUrl.length < 10) imgUrl = null;
             // Convert relative URLs to absolute using the page origin
