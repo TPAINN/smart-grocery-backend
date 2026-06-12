@@ -3,6 +3,7 @@ const express  = require('express');
 const bcrypt   = require('bcryptjs');
 const jwt      = require('jsonwebtoken');
 const dns      = require('dns').promises;
+const crypto   = require('crypto');
 const rateLimit = require('express-rate-limit');
 const User     = require('../models/User');
 const { JWT_SECRET } = require('../config/jwt');
@@ -313,14 +314,26 @@ router.get('/refresh-premium', authMiddleware, async (req, res) => {
   }
 });
 
+// ── Admin guard ───────────────────────────────────────────────────────────────
+// Secret via x-admin-secret header (query strings leak into proxy/server logs).
+// Body `secret` still accepted for backward compatibility.
+// timingSafeEqual αποτρέπει timing attacks στη σύγκριση.
+const isAdminAuthorized = (req) => {
+  const adminSecret = process.env.ADMIN_SECRET;
+  const provided = req.headers['x-admin-secret'] || req.body?.secret;
+  if (!adminSecret || !provided) return false;
+  const a = Buffer.from(String(provided));
+  const b = Buffer.from(adminSecret);
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+};
+
 // ── 10. ADMIN: TOGGLE isPremium ───────────────────────────────────────────────
 // Protected by ADMIN_SECRET env var. Used to manually grant/revoke premium.
-// Usage: POST /api/auth/admin/set-premium  { email, isPremium, secret }
-router.post('/admin/set-premium', async (req, res) => {
-  const { email, isPremium, secret } = req.body;
-  const adminSecret = process.env.ADMIN_SECRET;
+// Usage: POST /api/auth/admin/set-premium  { email, isPremium } + x-admin-secret header
+router.post('/admin/set-premium', strictLimiter, async (req, res) => {
+  const { email, isPremium } = req.body;
 
-  if (!adminSecret || secret !== adminSecret) {
+  if (!isAdminAuthorized(req)) {
     return res.status(403).json({ message: 'Απαγορεύεται.' });
   }
   if (!email) return res.status(400).json({ message: 'Απαιτείται email.' });
@@ -342,9 +355,8 @@ router.post('/admin/set-premium', async (req, res) => {
 });
 
 // ── 11. ADMIN: LIST USERS (lightweight) ──────────────────────────────────────
-router.get('/admin/users', async (req, res) => {
-  const { secret } = req.query;
-  if (!process.env.ADMIN_SECRET || secret !== process.env.ADMIN_SECRET) {
+router.get('/admin/users', strictLimiter, async (req, res) => {
+  if (!isAdminAuthorized(req)) {
     return res.status(403).json({ message: 'Απαγορεύεται.' });
   }
   try {

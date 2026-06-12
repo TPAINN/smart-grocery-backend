@@ -10,6 +10,7 @@
 | 12:52 | Added 20 missing Greek translations to MEAL_NAMES_GR (Italian+Asian dishes) | routes/meals.js | SUCCESS | ~150 |
 | 03:00 | Created daily scraper scheduled task (03:00 nightly, node runAll.js) | C:/Users/Admin/.claude/scheduled-tasks/smart-grocery-daily-scraper/SKILL.md | created | ~100 |
 | 04:45 | Created Render cron job: renderRunAll.js + render.yaml (01:00 UTC daily, frankfurt, starter plan, 3 workers) | renderRunAll.js, render.yaml, .gitignore, package.json | commit 9ce39b8, pushed | ~400 |
+| 16:00 | GitHub Actions free daily scraper: MONGO_URI secret set via API, daily-scraper.yml (01:00 UTC, 5 workers, github profile), daily-scrape.yml disabled. Bug fixed: renderRunAll.js was hardcoding SCRAPER_PROFILE=render overriding workflow env. Fixed to default-only. Final test: 35.3min, 1 error (vs 198), all stores OK | .github/workflows/, renderRunAll.js, services/scraper.js | commits 5863894+3ddb674, pushed | ~600 |
 | 00:00 | Fixed search 'ξύδι'→no results: greekUpsilonFold υ→ι in expandQuery; PET_MARKERS add γατοτρ/σκυλοτρ; score filter >10 | routes/prices.js | SUCCESS | ~200 |
 | 00:00 | Removed false-positive setIsServerWaking from status poll; now only recipe fetch sets it | src/App.jsx | SUCCESS | ~100 |
 | 00:00 | Removed blue outline on search bar: outline: none !important on :focus-visible | src/App.css | SUCCESS | ~80 |
@@ -17,3 +18,4 @@
 | 12:52 | Fixed GymBeam critical bug (wrong return var names) + strengthened noise filter | services/webRecipeScraper.js | SUCCESS | ~300 |
 | 17:00 | platescanner.js v2: added healthScore, vitamins, sugar, /analyze-text, clarifying questions | routes/platescanner.js | done | ~2500 |
 | 16:09 | Fixed Lidl scraper (data-grid-data JSON attr + imageList/image/cutoutimageV2), fixed AB (AB_URLS constant), fixed Galaxias img, reduced Render concurrency to 3 for 512MB RAM, added dateScraped to upserts, added debug-scrape endpoint | services/scraper.js, server.js | pushed fc54fb7..394ecd2 | ~8k tokens |
+| 05:38 | Trial reminder: User.trialReminderSent flag, sendTrialReminderEmail template, daily cron 07:00 UTC (services/trialReminder.js) wired in server.js | models/User.js, services/* | syntax OK, server boots | - |

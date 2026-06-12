@@ -35,11 +35,12 @@ const userSchema = new mongoose.Schema({
     type:    Date,
     default: () => new Date(Date.now() + 14 * 24 * 60 * 60 * 1000),
   },
+  // 🔔 Έχει σταλεί email υπενθύμισης λήξης trial (στέλνεται μία φορά, ~2 μέρες πριν)
+  trialReminderSent: { type: Boolean, default: false },
   createdAt: { type: Date, default: Date.now },
 });
 
-// Index for fast friend lookup
-userSchema.index({ shareKey: 1 });
+// Index for fast friend lookup — shareKey already indexed via `unique: true` above
 userSchema.index({ 'friends.shareKey': 1 });
 
 module.exports = mongoose.model('User', userSchema);

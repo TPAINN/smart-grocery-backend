@@ -141,6 +141,8 @@ mongoose.connect(process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/smart_groce
 
 // ── Background Jobs ───────────────────────────────────────────────────────────
 startCronJobs();
+const { startTrialReminderCron } = require('./services/trialReminder');
+startTrialReminderCron();
 
 // ── Routes ────────────────────────────────────────────────────────────────────
 const authRoutes      = require('./routes/auth');

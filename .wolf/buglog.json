@@ -145,6 +145,42 @@
       "related_bugs": [],
       "occurrences": 1,
       "last_seen": "2026-04-30"
+    },
+    {
+      "id": "bug-013",
+      "timestamp": "2026-06-12T02:15:00Z",
+      "error_message": ".env with all production secrets was git-tracked (gitignore had #.env commented out)",
+      "file": ".gitignore / git index",
+      "root_cause": "gitignore line for .env was commented out; .env committed with MONGO_URI, JWT_SECRET, STRIPE_SECRET_KEY, SMTP_PASS, AI keys. Same in frontend repo (Google Maps key, Stripe publishable).",
+      "fix": "git rm --cached .env and uncommented .env in .gitignore (both repos). Keys remain in git HISTORY — must be rotated and history scrubbed (git-filter-repo).",
+      "tags": ["security", "secrets", "git"],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-06-12"
+    },
+    {
+      "id": "bug-014",
+      "timestamp": "2026-06-12T02:15:00Z",
+      "error_message": "Admin endpoints accepted secret via query string with non-constant-time compare",
+      "file": "routes/auth.js",
+      "root_cause": "/admin/users?secret=... leaks into proxy/server logs; plain !== compare is timing-attackable; no rate limit on admin routes.",
+      "fix": "isAdminAuthorized() helper: x-admin-secret header (body fallback for compat), crypto.timingSafeEqual, strictLimiter on both admin routes.",
+      "tags": ["security", "admin", "timing-attack"],
+      "related_bugs": ["bug-013"],
+      "occurrences": 1,
+      "last_seen": "2026-06-12"
+    },
+    {
+      "id": "bug-015",
+      "timestamp": "2026-06-12T02:15:00Z",
+      "error_message": "Mongoose warning: Duplicate schema index on {shareKey:1} for model User",
+      "file": "models/User.js",
+      "root_cause": "shareKey had unique:true AND a separate schema.index({shareKey:1}).",
+      "fix": "Removed the redundant schema.index() call.",
+      "tags": ["mongoose", "index", "warning"],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-06-12"
     }
   ]
 }
