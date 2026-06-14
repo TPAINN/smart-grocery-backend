@@ -2,6 +2,7 @@
 const express = require('express');
 const router  = express.Router();
 const Product = require('../models/Product');
+const PriceHistory = require('../models/PriceHistory');
 
 // ── English → Greek food dictionary ──────────────────────────────────────────
 const EN_TO_GR = {
@@ -321,6 +322,87 @@ router.get('/search', async (req, res) => {
   } catch (error) {
     console.error('Σφάλμα στην Αναζήτηση:', error);
     res.status(500).json({ message: 'Σφάλμα διακομιστή' });
+  }
+});
+
+// ── GET /api/prices/history — price history + cross-store comparison ──────────
+// Query: ?name=<normalizedName>&store=<supermarket?>
+// Returns a time series (one point/day) plus the current price at each store.
+// When the time series is still sparse, it anchors from the product's oldPrice
+// so the chart is meaningful from day one and fills in as scrapes accumulate.
+router.get('/history', async (req, res) => {
+  try {
+    const name  = (req.query.name || '').trim().toLowerCase().slice(0, 120);
+    const store = req.query.store;
+    if (name.length < 2) return res.status(400).json({ message: 'Λείπει το όνομα προϊόντος.' });
+
+    // Current products across stores for this item
+    const products = await Product.find({ normalizedName: name })
+      .select('name supermarket price oldPrice dateScraped imageUrl')
+      .lean();
+
+    if (products.length === 0) {
+      return res.json({ name, series: [], byStore: [], current: null, old: null, min: null, max: null, changePct: null, cheapestStore: null });
+    }
+
+    // Lowest current price per supermarket
+    const byStoreMap = new Map();
+    for (const p of products) {
+      const e = byStoreMap.get(p.supermarket);
+      if (!e || p.price < e.price) byStoreMap.set(p.supermarket, p);
+    }
+    const byStore = [...byStoreMap.values()]
+      .filter(p => p.price > 0)
+      .map(p => ({ supermarket: p.supermarket, price: p.price }))
+      .sort((a, b) => a.price - b.price);
+
+    // Time series: cheapest price per day (optionally store-scoped)
+    const histFilter = { normalizedName: name };
+    if (store && store !== 'Όλα') histFilter.supermarket = store;
+    const hist = await PriceHistory.find(histFilter).sort({ day: 1 }).lean();
+
+    const byDay = new Map();
+    for (const h of hist) {
+      const cur = byDay.get(h.day);
+      if (cur == null || h.price < cur) byDay.set(h.day, h.price);
+    }
+    let series = [...byDay.entries()].map(([date, price]) => ({ date, price }));
+
+    const cheapest = byStore[0] || null;
+    const withOld  = products.find(p => p.oldPrice && p.oldPrice > 0);
+    const today    = new Date().toISOString().slice(0, 10);
+
+    // Anchor sparse series with real previous→current data so it's never empty
+    if (series.length < 2 && cheapest) {
+      const anchors = [];
+      if (withOld) anchors.push({ date: 'πριν', price: Number(withOld.oldPrice) });
+      anchors.push({ date: today, price: cheapest.price });
+      // Keep any single real point too
+      if (series.length === 1 && series[0].date !== today) anchors.unshift(series[0]);
+      series = anchors;
+    }
+
+    const prices = series.map(s => s.price);
+    const min = prices.length ? Math.min(...prices) : null;
+    const max = prices.length ? Math.max(...prices) : null;
+    const current = cheapest ? cheapest.price : null;
+    const old = withOld ? Number(withOld.oldPrice) : null;
+    const changePct = (old && current) ? Math.round(((current - old) / old) * 100) : null;
+
+    res.json({
+      name,
+      series,
+      byStore,
+      current,
+      old,
+      min,
+      max,
+      changePct,
+      cheapestStore: cheapest ? cheapest.supermarket : null,
+    });
+  } catch (err) {
+    console.error('history error:', err.message);
+    res.status(500).json({ message: 'Σφάλμα ιστορικού τιμών.' });
   }
 });
 
