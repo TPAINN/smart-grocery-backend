@@ -771,6 +771,31 @@ async function scrapeTask({ page, data: { url, storeName } }) {
         }));
         const result = await Product.bulkWrite(bulkOps);
         console.log(`✅ [${storeName}] upserted=${result.upsertedCount} modified=${result.modifiedCount}`);
+
+        // 📈 Record a daily price-history snapshot (one point per product/store/day).
+        // Best-effort: never let history bookkeeping break a successful scrape.
+        try {
+            const PriceHistory = require('../models/PriceHistory');
+            const day = now.toISOString().slice(0, 10);
+            const histOps = finalProducts
+                .filter(p => p.price > 0)
+                .map(p => ({
+                    updateOne: {
+                        filter: { normalizedName: p.normalizedName, supermarket: p.supermarket, day },
+                        update: {
+                            $set: { price: p.price, date: now },
+                            $setOnInsert: { normalizedName: p.normalizedName, supermarket: p.supermarket, day },
+                        },
+                        upsert: true,
+                    },
+                }));
+            if (histOps.length) {
+                await PriceHistory.bulkWrite(histOps, { ordered: false });
+                console.log(`📈 [${storeName}] price-history points: ${histOps.length}`);
+            }
+        } catch (e) {
+            console.warn(`[PriceHistory] skip (${storeName}): ${e.message}`);
+        }
     } else {
         console.log(`⚠️  [${storeName}] 0 προϊόντα βρέθηκαν — τίποτα δεν αποθηκεύτηκε`);
     }
