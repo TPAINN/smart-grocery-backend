@@ -852,8 +852,15 @@ async function runWebScraper(targetStore = null) {
         '/usr/bin/chromium',
     ];
     let executablePath;
-    for (const p of SYSTEM_CHROME_PATHS) {
-        if (fs.existsSync(p)) { executablePath = p; break; }
+    // Explicit override wins (CI sets PUPPETEER_EXECUTABLE_PATH to a verified Chrome
+    // binary — avoids the GH Actions "folder exists but executable missing" cache bug).
+    const envChrome = process.env.PUPPETEER_EXECUTABLE_PATH;
+    if (envChrome && fs.existsSync(envChrome)) {
+        executablePath = envChrome;
+    } else {
+        for (const p of SYSTEM_CHROME_PATHS) {
+            if (fs.existsSync(p)) { executablePath = p; break; }
+        }
     }
 
     // ── Cluster profile ────────────────────────────────────────────────────
