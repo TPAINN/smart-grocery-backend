@@ -34,32 +34,29 @@ jobs:
           cache: 'npm'
 
       # ── 3. Εγκατάσταση dependencies ─────────────────────────────────────────
+      # Skip puppeteer's own Chromium download: it left a CORRUPT/partial
+      # extraction on the runner (zip present, chrome-linux64/chrome binary never
+      # extracted) -> scraper crashed at launch with "executable is missing" every
+      # day. We install a real Google Chrome below instead.
       - name: Install dependencies
         run: npm ci
+        env:
+          PUPPETEER_SKIP_DOWNLOAD: 'true'
 
       # ── 4. Chrome για Puppeteer ─────────────────────────────────────────────
-      # FIX (2026-06-17): npm ci's puppeteer postinstall can leave a PARTIAL
-      # download (version folder exists, but chrome-linux64/chrome binary is
-      # missing). `browsers install chrome` is idempotent and skips the stub, so
-      # the scraper crashed at launch with "executable is missing" every day.
-      # Wipe cache → reinstall clean → VERIFY binary → export path so the run
-      # step uses exactly this Chrome (scraper.js honors PUPPETEER_EXECUTABLE_PATH).
-      - name: Install & verify Puppeteer Chrome
-        env:
-          PUPPETEER_CACHE_DIR: /home/runner/.cache/puppeteer
+      # FIX (2026-06-18): install the official Google Chrome .deb. It lands at
+      # /usr/bin/google-chrome-stable, which scraper.js auto-detects via
+      # SYSTEM_CHROME_PATHS. Deterministic and immune to puppeteer's flaky
+      # downloader. We also export PUPPETEER_EXECUTABLE_PATH explicitly.
+      - name: Install Google Chrome
         run: |
-          rm -rf "$PUPPETEER_CACHE_DIR"
-          npx puppeteer browsers install chrome
-          EXE=$(node -e "console.log(require('puppeteer').executablePath())")
-          echo "Resolved Chrome: $EXE"
-          if [ ! -f "$EXE" ]; then
-            echo "❌ Chrome binary still missing — failing fast"
-            ls -R "$PUPPETEER_CACHE_DIR" || true
-            exit 1
-          fi
-          "$EXE" --version
-          echo "PUPPETEER_EXECUTABLE_PATH=$EXE" >> "$GITHUB_ENV"
-          echo "✅ Chrome verified"
+          wget -q -O /tmp/chrome.deb https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq /tmp/chrome.deb
+          CHROME_BIN="$(command -v google-chrome-stable)"
+          "$CHROME_BIN" --version
+          echo "PUPPETEER_EXECUTABLE_PATH=$CHROME_BIN" >> "$GITHUB_ENV"
+          echo "✅ Chrome ready at $CHROME_BIN"
 
       # ── 5. Τρέξε το scraper ──────────────────────────────────────────────────
       - name: Run full scraper
