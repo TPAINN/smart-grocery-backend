@@ -459,16 +459,43 @@ router.get('/top-offers', async (req, res) => {
   try {
     const limit = Math.min(50, parseInt(req.query.limit) || 20);
     const store = req.query.store || '';
-    const filter = { isOnSale: true, price: { $gt: 0 } };
-    if (store) filter.supermarket = { $regex: store, $options: 'i' };
 
-    const offers = await Product.find(filter)
-      .sort({ discountPercent: -1, dateScraped: -1 })
-      .limit(limit)
-      .lean();
+    // Genuine markdowns: oldPrice strictly above the current price. The scraper
+    // never fills discountPercent, so we COMPUTE it here and sort by it. Sanity
+    // bounds drop bad data (price typos that imply >90% off or <5% "deals").
+    const match = {
+      price: { $gt: 0 },
+      oldPrice: { $gt: 0 },
+      $expr: { $gt: ['$oldPrice', '$price'] },
+    };
+    if (store) match.supermarket = { $regex: store, $options: 'i' };
 
+    const offers = await Product.aggregate([
+      { $match: match },
+      { $addFields: {
+          discount: {
+            $round: [{ $multiply: [{ $divide: [{ $subtract: ['$oldPrice', '$price'] }, '$oldPrice'] }, 100] }, 0],
+          },
+      } },
+      // 10–60% keeps real promos; >60% is almost always bad data (oldPrice that
+      // is actually a per-kilo / per-case reference, e.g. "130gr salad was €15").
+      { $match: { discount: { $gte: 10, $lte: 60 } } },
+      // Keep the single best-discount row per product name (dedupe near-duplicates)
+      { $sort: { discount: -1, dateScraped: -1 } },
+      { $group: { _id: '$normalizedName', doc: { $first: '$$ROOT' } } },
+      { $replaceRoot: { newRoot: '$doc' } },
+      { $sort: { discount: -1, dateScraped: -1 } },
+      { $limit: limit },
+      { $project: {
+          name: 1, price: 1, oldPrice: 1, discount: 1, supermarket: 1,
+          imageUrl: 1, pricePerUnit: 1, validityDate: 1, is1plus1: 1, dateScraped: 1,
+      } },
+    ]);
+
+    res.set('Cache-Control', 'public, max-age=600'); // 10 min — data refreshes daily
     res.json(offers);
   } catch (err) {
+    console.error('top-offers error:', err.message);
     res.status(500).json({ message: 'Σφάλμα top offers.' });
   }
 });
