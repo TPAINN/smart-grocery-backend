@@ -9,6 +9,17 @@ const Anthropic = require('@anthropic-ai/sdk');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const Groq = require('groq-sdk');
 
+// ── Models — override any provider's model via env, no code change needed ─────
+// (e.g. set BYTEZ_MODEL if the Bytez catalog id changes, or GEMINI_MODEL when
+//  swapping to a model your billing tier allows.)
+const MODELS = {
+  claude:     process.env.CLAUDE_MODEL      || 'claude-haiku-4-5-20251001',
+  gemini:     process.env.GEMINI_MODEL      || 'gemini-2.0-flash',
+  groqText:   process.env.GROQ_MODEL        || 'llama-3.3-70b-versatile',
+  groqVision: process.env.GROQ_VISION_MODEL || 'meta-llama/llama-4-scout-17b-16e-instruct',
+  bytez:      process.env.BYTEZ_MODEL       || 'Qwen/Qwen3-4B',
+};
+
 // ── In-memory rate-limit tracker (resets every minute) ────────────────────────
 const rateTracker = {
   claude: { count: 0, resetAt: Date.now() + 60_000 },
@@ -31,7 +42,7 @@ async function callClaude(systemPrompt, userPrompt) {
   const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
   tick('claude');
   const message = await client.messages.create({
-    model: 'claude-haiku-4-5-20251001',
+    model: MODELS.claude,
     max_tokens: 16000,
     system: systemPrompt,
     messages: [{ role: 'user', content: userPrompt }],
@@ -45,7 +56,7 @@ async function callClaude(systemPrompt, userPrompt) {
 async function callGemini(systemPrompt, userPrompt) {
   const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
   const model = genAI.getGenerativeModel({
-    model: 'gemini-2.0-flash',
+    model: MODELS.gemini,
     systemInstruction: systemPrompt,
     generationConfig: {
       responseMimeType: 'application/json',
@@ -65,7 +76,7 @@ async function callGroq(systemPrompt, userPrompt) {
   const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
   tick('groq');
   const completion = await groq.chat.completions.create({
-    model: 'llama-3.3-70b-versatile',
+    model: MODELS.groqText,
     messages: [
       { role: 'system', content: systemPrompt },
       { role: 'user',   content: userPrompt },
@@ -84,7 +95,7 @@ async function callBytez(systemPrompt, userPrompt) {
   if (!apiKey) throw new Error('BYTEZ_API_KEY not set');
 
   tick('bytez');
-  const res = await fetch('https://api.bytez.com/models/v2/Qwen/Qwen3-4B', {
+  const res = await fetch(`https://api.bytez.com/models/v2/${MODELS.bytez}`, {
     method: 'POST',
     headers: {
       'Authorization': `Key ${apiKey}`,
@@ -129,7 +140,7 @@ async function callVisionClaude(systemPrompt, userPrompt, imageBase64, mediaType
   const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
   tick('claude');
   const message = await client.messages.create({
-    model: 'claude-haiku-4-5-20251001',
+    model: MODELS.claude,
     max_tokens: 4096,
     system: systemPrompt,
     messages: [{
@@ -149,7 +160,7 @@ async function callVisionClaude(systemPrompt, userPrompt, imageBase64, mediaType
 async function callVisionGemini(systemPrompt, userPrompt, imageBase64, mediaType) {
   const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
   const model = genAI.getGenerativeModel({
-    model: 'gemini-2.0-flash',
+    model: MODELS.gemini,
     systemInstruction: systemPrompt,
     generationConfig: { responseMimeType: 'application/json', temperature: 0.3, maxOutputTokens: 4096 },
   });
@@ -167,7 +178,7 @@ async function callVisionGroq(systemPrompt, userPrompt, imageBase64, mediaType) 
   const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
   tick('groq');
   const completion = await groq.chat.completions.create({
-    model: 'meta-llama/llama-4-scout-17b-16e-instruct',
+    model: MODELS.groqVision,
     messages: [
       { role: 'system', content: systemPrompt + '\n\nIMPORTANT: Respond ONLY with valid JSON. No markdown, no explanation.' },
       {
@@ -212,7 +223,7 @@ async function callClaudeText(systemPrompt, userPrompt) {
   const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
   tick('claude');
   const message = await client.messages.create({
-    model: 'claude-haiku-4-5-20251001',
+    model: MODELS.claude,
     max_tokens: 4096,
     system: systemPrompt,
     messages: [{ role: 'user', content: userPrompt }],
@@ -224,7 +235,7 @@ async function callClaudeText(systemPrompt, userPrompt) {
 async function callGeminiText(systemPrompt, userPrompt) {
   const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
   const model = genAI.getGenerativeModel({
-    model: 'gemini-2.0-flash',
+    model: MODELS.gemini,
     systemInstruction: systemPrompt,
     generationConfig: {
       temperature: 0.4,
@@ -241,7 +252,7 @@ async function callGroqText(systemPrompt, userPrompt) {
   const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
   tick('groq');
   const completion = await groq.chat.completions.create({
-    model: 'llama-3.3-70b-versatile',
+    model: MODELS.groqText,
     messages: [
       { role: 'system', content: systemPrompt },
       { role: 'user', content: userPrompt },
@@ -257,7 +268,7 @@ async function callBytezText(systemPrompt, userPrompt) {
   if (!apiKey) throw new Error('BYTEZ_API_KEY not set');
 
   tick('bytez');
-  const res = await fetch('https://api.bytez.com/models/v2/Qwen/Qwen3-4B', {
+  const res = await fetch(`https://api.bytez.com/models/v2/${MODELS.bytez}`, {
     method: 'POST',
     headers: {
       'Authorization': `Key ${apiKey}`,
@@ -333,4 +344,31 @@ async function callAIText(systemPrompt, userPrompt) {
   throw new Error(`Κανένας AI text provider δεν είναι διαθέσιμος. ${errors.join(' | ')}`);
 }
 
-module.exports = { callAI, callAIText, callVisionAI };
+// ── Provider health probe — used by the admin AI-health endpoint ──────────────
+// Returns per-provider reachability WITHOUT exposing any key value. Useful to
+// confirm new keys after setting them on Render.
+async function probeProviders() {
+  const sys = 'You are a JSON API. Reply with strict JSON only.';
+  const usr = 'Return exactly {"ok":true}';
+  const checks = [
+    { name: 'claude', key: 'ANTHROPIC_API_KEY', model: MODELS.claude,    fn: () => callClaudeText(sys, usr) },
+    { name: 'gemini', key: 'GEMINI_API_KEY',    model: MODELS.gemini,    fn: () => callGeminiText(sys, usr) },
+    { name: 'groq',   key: 'GROQ_API_KEY',      model: MODELS.groqText,  fn: () => callGroqText(sys, usr) },
+    { name: 'bytez',  key: 'BYTEZ_API_KEY',     model: MODELS.bytez,     fn: () => callBytezText(sys, usr) },
+  ];
+  const out = [];
+  for (const c of checks) {
+    if (!process.env[c.key]) { out.push({ provider: c.name, model: c.model, keySet: false, ok: false, error: 'key not set' }); continue; }
+    const t0 = Date.now();
+    try {
+      await c.fn();
+      out.push({ provider: c.name, model: c.model, keySet: true, ok: true, ms: Date.now() - t0 });
+    } catch (err) {
+      // Truncate to avoid echoing anything sensitive from upstream error bodies.
+      out.push({ provider: c.name, model: c.model, keySet: true, ok: false, ms: Date.now() - t0, error: String(err.message || err).slice(0, 160) });
+    }
+  }
+  return { anyOk: out.some(o => o.ok), providers: out };
+}
+
+module.exports = { callAI, callAIText, callVisionAI, probeProviders };
