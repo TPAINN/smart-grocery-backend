@@ -48,16 +48,36 @@ const server = http.createServer(app);
 app.set('trust proxy', 1);
 
 // ── Security headers ──────────────────────────────────────────────────────────
+app.disable('x-powered-by'); // don't advertise Express
 app.use((req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('X-Frame-Options', 'DENY');
   res.setHeader('X-XSS-Protection', '1; mode=block');
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  // Force HTTPS for 180 days (Render terminates TLS in front of us).
+  if (process.env.NODE_ENV === 'production') {
+    res.setHeader('Strict-Transport-Security', 'max-age=15552000; includeSubDomains');
+  }
   next();
 });
 
 // ── CORS ──────────────────────────────────────────────────────────────────────
-const allowedOrigins = (process.env.ALLOWED_ORIGINS || 'http://localhost:5173,http://localhost:5174,http://localhost:5175').split(',');
+// Known-good origins are ALWAYS allowed (so a stale ALLOWED_ORIGINS env on the
+// host can never silently break the production frontend). ALLOWED_ORIGINS may
+// add more (e.g. preview deploys) but can never remove these.
+const DEFAULT_ORIGINS = [
+  'http://localhost:5173',
+  'http://localhost:5174',
+  'http://localhost:5175',
+  'https://kalathaki.vercel.app',              // canonical public app
+  'https://smart-grocery-frontend-six.vercel.app', // Vercel project default domain
+  'https://smart-grocery-frontend.vercel.app', // legacy alias (back-compat)
+];
+const ENV_ORIGINS = (process.env.ALLOWED_ORIGINS || '')
+  .split(',')
+  .map(o => o.trim())
+  .filter(Boolean);
+const allowedOrigins = [...new Set([...DEFAULT_ORIGINS, ...ENV_ORIGINS])];
 
 // Προσθέτουμε πάντα τα Capacitor origins για το Android APK
 const CAPACITOR_ORIGINS = [
@@ -76,6 +96,7 @@ const isOriginAllowed = (origin) => {
 const io = new Server(server, {
   cors: { origin: (origin, cb) => cb(null, isOriginAllowed(origin)), methods: ['GET', 'POST'] },
   transports: ['websocket', 'polling'],
+  maxHttpBufferSize: 1e6, // 1MB cap per WS message — blocks memory-exhaustion DoS
 });
 
 // Respond with the allowed origin or false (never throw — throwing causes 500 on pre-flight)
@@ -156,6 +177,32 @@ const barcodeRoutes      = require('./routes/barcode');
 const mealsRoutes        = require('./routes/meals');
 const pushRoutes         = require('./routes/push');
 const plateScannerRoutes = require('./routes/platescanner');
+const diagnosticsRoutes  = require('./routes/diagnostics');
+// Admin diagnostics (AI-key health etc.) — tight limit; each probe hits AI APIs.
+const diagLimiter = rateLimit({
+  windowMs: 5 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'too many diagnostics requests' },
+});
+// Admin/debug ops launch Puppeteer / bulk DB writes — throttle hard even though
+// they are CRON_SECRET-gated (defence in depth if the secret ever leaks).
+const adminOpLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 6,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { message: 'Πολλά admin αιτήματα. Δοκίμασε ξανά αργότερα.' },
+});
+// Public endpoints that call paid AI providers — cap per IP to stop cost-drain.
+const aiPublicLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { message: 'Πολλά αιτήματα AI. Δοκίμασε ξανά σε λίγο.' },
+});
 const aiMealPlanLimiter = rateLimit({
   windowMs: 60 * 60 * 1000,
   max: 15,
@@ -166,6 +213,12 @@ const aiMealPlanLimiter = rateLimit({
 
 // Wire io to auth so notify-friend can emit socket events
 if (typeof authRoutes.setIO === 'function') authRoutes.setIO(io);
+
+// ── Targeted rate limits — MUST register before the routers/handlers below ───
+app.use('/api/recipes/estimate-macros', aiPublicLimiter); // public AI → cost guard
+app.use('/api/prices/substitute',       aiPublicLimiter); // public AI → cost guard
+app.use('/api/auth/by-key',             adminOpLimiter);  // throttle user enumeration
+app.use(['/api/debug-scrape', '/api/force-scrape', '/api/force-recipes', '/api/backfill-macros'], adminOpLimiter);
 
 // Το strictLimiter για register/login ορίζεται μέσα στο routes/auth.js
 app.use('/api/auth',      generalAuthLimiter, authRoutes);
@@ -180,6 +233,7 @@ app.use('/api/barcode',   barcodeRoutes);  // USDA + Edamam fallback for barcode
 app.use('/api/meals',          mealsRoutes);         // TheMealDB proxy (Greek + Mediterranean recipes)
 app.use('/api/push',           pushRoutes);          // Web Push subscriptions
 app.use('/api/plate-scanner',  plateScannerRoutes);  // AI Plate Macro Scanner (Vision AI)
+app.use('/api/diag',           diagLimiter, diagnosticsRoutes); // admin-only ops diagnostics
 
 // ── Health & Admin ────────────────────────────────────────────────────────────
 app.get('/api/health',  (req, res) => res.status(200).send('OK'));
@@ -237,7 +291,8 @@ app.get('/api/debug-scrape', async (req, res) => {
     await browser.close();
     res.json({ url, chromeFound: !!executablePath, chromePath: executablePath || 'bundled', ...info });
   } catch(e) {
-    res.status(500).json({ error: e.message, stack: e.stack?.slice(0,500) });
+    console.error('debug-scrape error:', e.stack || e.message);
+    res.status(500).json({ error: e.message }); // stack stays in server logs only
   }
 });
 
@@ -398,8 +453,15 @@ app.use((req, res) => {
 
 // ── Global error handler ──────────────────────────────────────────────────────
 app.use((err, req, res, next) => { // eslint-disable-line no-unused-vars
-  console.error('❌ Unhandled error:', err.message);
-  res.status(err.status || 500).json({ message: err.message || 'Εσωτερικό σφάλμα διακομιστή.' });
+  console.error('❌ Unhandled error:', err.stack || err.message);
+  const status = err.status || 500;
+  // Expose the message only for client errors (4xx) or in non-prod. Never leak
+  // internal 5xx details/stacks to clients in production.
+  const isClient = status >= 400 && status < 500;
+  const message = (isClient || process.env.NODE_ENV !== 'production')
+    ? (err.message || 'Σφάλμα')
+    : 'Εσωτερικό σφάλμα διακομιστή.';
+  res.status(status).json({ message });
 });
 
 // ── Startup env validation ────────────────────────────────────────────────────
