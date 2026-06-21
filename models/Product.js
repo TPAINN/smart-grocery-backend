@@ -22,5 +22,11 @@ productSchema.index({ name: 'text' }, { default_language: 'none' });
 productSchema.index({ name: 1, supermarket: 1 });
 // Compound index for store + price sort queries
 productSchema.index({ supermarket: 1, price: 1 });
+// Ingredient/price lookups (findBestPrice, substitute, price comparison) + price sort.
+// Without this, those queries ran full collection scans of ~62k docs each.
+productSchema.index({ normalizedName: 1, price: 1 });
+// Recency window for top-offers + scrape-status + latest-scrape lookups.
+// (sort/range on dateScraped was previously a full scan.)
+productSchema.index({ dateScraped: -1 });
 
 module.exports = mongoose.model('Product', productSchema);
