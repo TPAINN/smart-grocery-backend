@@ -356,6 +356,16 @@ app.get('/.well-known/appspecific/com.chrome.devtools.json', (req, res) => res.j
 io.on('connection', (socket) => {
   console.log('🔌 Socket connected:', socket.id);
 
+  // ── Per-socket event throttle (anti-flood / DoS) ──────────────────────────
+  // Human usage stays well under these caps; only abusive bursts get dropped.
+  const _rl = Object.create(null);
+  const throttle = (key, max, windowMs) => {
+    const now = Date.now();
+    const b = _rl[key] || (_rl[key] = { n: 0, reset: now + windowMs });
+    if (now > b.reset) { b.n = 0; b.reset = now + windowMs; }
+    return ++b.n <= max;
+  };
+
   // ── Room join ────────────────────────────────────────────────────────────
   socket.on('join_cart', (shareKey) => {
     if (!shareKey) return;
@@ -372,6 +382,7 @@ io.on('connection', (socket) => {
 
   // ── Send item to friend ───────────────────────────────────────────────────
   socket.on('send_item', (data) => {
+    if (!throttle('item', 60, 10000)) return; // anti-flood
     if (!data?.shareKey) return;
     socket.to(data.shareKey).emit('receive_item', data.item);
   });
@@ -381,6 +392,7 @@ io.on('connection', (socket) => {
   // If targetShareKey is set → private DM to one friend only
   // Otherwise → broadcast to all friend rooms (group chat)
   socket.on('send_message', async (data) => {
+    if (!throttle('msg', 25, 10000)) return; // max ~25 msgs / 10s per socket
     try {
       const newMessage = await Message.create({
         shareKey:       data.shareKey,
