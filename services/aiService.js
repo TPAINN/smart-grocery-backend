@@ -82,7 +82,7 @@ async function callGroq(systemPrompt, userPrompt) {
       { role: 'user',   content: userPrompt },
     ],
     temperature: 0.4,
-    max_tokens: 16384,
+    max_tokens: 8000, // Groq free on_demand tier rejects very large max_tokens (413)
     response_format: { type: 'json_object' },
   });
   const raw = completion.choices[0]?.message?.content || '{}';
@@ -258,7 +258,7 @@ async function callGroqText(systemPrompt, userPrompt) {
       { role: 'user', content: userPrompt },
     ],
     temperature: 0.4,
-    max_tokens: 16384,
+    max_tokens: 8000, // Groq free on_demand tier rejects very large max_tokens (413)
   });
   return stripMarkdownFences(completion.choices[0]?.message?.content || '');
 }
