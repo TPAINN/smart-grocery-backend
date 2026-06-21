@@ -222,9 +222,9 @@ app.use(['/api/debug-scrape', '/api/force-scrape', '/api/force-recipes', '/api/b
 
 // Το strictLimiter για register/login ορίζεται μέσα στο routes/auth.js
 app.use('/api/auth',      generalAuthLimiter, authRoutes);
-app.use('/api/prices',    cacheMiddleware(300),  pricesRoutes);  // 5 min cache
+app.use('/api/prices',    cacheMiddleware(600),  pricesRoutes);  // 10 min — prices change ~1x/day; scrape flushes cache
 app.use('/api/lists',     listRoutes);
-app.use('/api/recipes',   cacheMiddleware(600),  recipeRoutes);  // 10 min cache
+app.use('/api/recipes',   cacheMiddleware(1800), recipeRoutes);  // 30 min — recipes change rarely
 app.use('/api/chat',      chatRoutes);
 app.use('/api/meal-plan', aiMealPlanLimiter, mealPlanRoutes);
 app.use('/api/favorites', favoritesRoutes);

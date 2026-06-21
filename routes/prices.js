@@ -470,6 +470,16 @@ router.get('/top-offers', async (req, res) => {
     };
     if (store) match.supermarket = { $regex: store, $options: 'i' };
 
+    // Only surface deals from the most recent scrape window. Without this, old
+    // markdowns (sometimes weeks old, already expired in-store) linger in the
+    // collection and dominate "top offers", hurting trust.
+    const newest = await Product.findOne({ price: { $gt: 0 }, oldPrice: { $gt: 0 } })
+      .sort({ dateScraped: -1 }).select('dateScraped').lean();
+    if (newest && newest.dateScraped) {
+      const RECENT_DAYS = 3;
+      match.dateScraped = { $gte: new Date(newest.dateScraped.getTime() - RECENT_DAYS * 86400000) };
+    }
+
     const offers = await Product.aggregate([
       { $match: match },
       { $addFields: {
