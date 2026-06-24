@@ -139,15 +139,6 @@ function scoreMatch(productName, query) {
     }
   }
 
-  // ── Penalty 3: query appears only as a preparation/ingredient descriptor ──
-  // "τόνος σε λάδι" (q="λάδι") or "μπισκότα με ταχίνι" (q="ταχίνι") — here the
-  // query is the medium/ingredient, NOT the product itself. If it isn't the head
-  // word and sits right after σε/με/από, demote below the relevance cut so the
-  // cans / snacks fall out of the results.
-  if (!nameI.startsWith(qI) && new RegExp(`(^|\\s)(σε|με|απο)\\s+${qEsc}(\\s|$)`).test(nameI)) {
-    return Math.round(score * 0.1);
-  }
-
   return score;
 }
 
