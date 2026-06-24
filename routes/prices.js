@@ -94,6 +94,13 @@ const PET_MARKERS = /(^|\s)(γατα|γατος|γατων|γατας|σκυλο
 // Αν το query δεν περιέχει pet-related λέξεις, θεωρούμε ότι ψάχνει ανθρώπινα τρόφιμα
 const isPetQuery = (q) => /(γατα|γατ |σκυλ|κατοικιδι|ζωοτρ|\bcat\b|\bdog\b)/.test(q);
 
+// Non-grocery / personal-care / household markers. A plain food query must NOT
+// surface these (e.g. "λάδι" → lamp/sun/hair oil, "ελαιόλαδο" → body butter,
+// hand cream). Skipped when the query ITSELF is one of these terms (so a real
+// "σαμπουάν"/"καθαριστικό" search still works).
+const NON_FOOD_MARKERS = /(φωτιστικ|λαμπα|λαμπας|παραφιν|καντηλ|κανδηλ|σαμπουαν|αφρολουτρ|αντηλιακ|spf|μαλλι|κρεμα χερ|κρεμα σωμ|κρεμα προσωπ|body butter|body milk|body lotion|lotion|scrub|σκραμπ|μασκα μαλλ|μασκα προσωπ|σερουμ|serum|conditioner|μαλακτικ|σαπουν|καθαριστικ|απορρυπαντ)/;
+const isNonFoodQuery = (q) => NON_FOOD_MARKERS.test(q);
+
 // Ελέγχει αν το προϊόν έχει penalty (pet food ή flavor-only descriptor)
 function isIrrelevantProduct(name, q, qEsc) {
   if (!isPetQuery(q) && PET_MARKERS.test(name)) return true;
@@ -137,6 +144,18 @@ function scoreMatch(productName, query) {
     if (!queryInMainPart) {
       return Math.round(score * 0.3);
     }
+  }
+
+  // ── Penalty 3: non-grocery product (lamp oil, sunscreen, hair/skin care,
+  // cleaning) for a food query — heavy demote so it drops out of food results.
+  if (!isNonFoodQuery(q) && NON_FOOD_MARKERS.test(name)) {
+    return Math.round(score * 0.05);
+  }
+
+  // ── Penalty 4: the query is a preparation/ingredient descriptor, not the
+  // head noun — "τόνος σε (φυτικό) λάδι" (q="λάδι"), "μπισκότα με ταχίνι".
+  if (!nameI.startsWith(qI) && new RegExp(`(^|\\s)(σε|με|απο)\\s+(\\S+\\s+){0,2}${qEsc}(\\s|$)`).test(nameI)) {
+    return Math.round(score * 0.1);
   }
 
   return score;
