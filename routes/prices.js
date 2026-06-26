@@ -344,6 +344,70 @@ router.get('/search', async (req, res) => {
   }
 });
 
+// ── GET /api/prices/autocomplete — fast suggestions while typing (alias of /search) ──
+// Returns top 8 results for the given query, optimised for speed (no heavy scoring).
+router.get('/autocomplete', async (req, res) => {
+  try {
+    const q = (req.query.q || '').trim().slice(0, 60);
+    if (q.length < 2) return res.json([]);
+
+    const norm = normalize(q);
+    // Try Greek translation first, then raw query
+    const searchTerms = [norm];
+    const grTrans = EN_TO_GR[q.toLowerCase()];
+    if (grTrans) searchTerms.unshift(normalize(grTrans));
+
+    const results = [];
+    const seen = new Set();
+
+    for (const term of searchTerms) {
+      const docs = await Product.find({
+        normalizedName: { $regex: `^${escapeRegex(term)}`, $options: 'i' },
+        price: { $gt: 0 },
+      })
+        .select('name price supermarket imageUrl normalizedName')
+        .sort({ price: 1 })
+        .limit(20)
+        .lean();
+
+      for (const d of docs) {
+        const key = d.normalizedName;
+        if (!seen.has(key)) {
+          seen.add(key);
+          results.push(d);
+        }
+      }
+      if (results.length >= 8) break;
+    }
+
+    // Fallback: substring match if prefix match too sparse
+    if (results.length < 4) {
+      const term = searchTerms[searchTerms.length - 1];
+      const more = await Product.find({
+        normalizedName: { $regex: escapeRegex(term), $options: 'i' },
+        price: { $gt: 0 },
+      })
+        .select('name price supermarket imageUrl normalizedName')
+        .sort({ price: 1 })
+        .limit(20)
+        .lean();
+
+      for (const d of more) {
+        if (!seen.has(d.normalizedName)) {
+          seen.add(d.normalizedName);
+          results.push(d);
+        }
+      }
+    }
+
+    res.set('Cache-Control', 'public, max-age=60');
+    res.json(results.slice(0, 8));
+  } catch (err) {
+    console.error('autocomplete error:', err.message);
+    res.status(500).json([]);
+  }
+});
+
 // ── GET /api/prices/history — price history + cross-store comparison ──────────
 // Query: ?name=<normalizedName>&store=<supermarket?>
 // Returns a time series (one point/day) plus the current price at each store.
@@ -437,17 +501,34 @@ router.post('/substitute', async (req, res) => {
       .replace(/[ηήΗΉ]/g,'η').replace(/[ιίΙΊϊΐ]/g,'ι').replace(/[οόΟΌ]/g,'ο')
       .replace(/[υύΥΎϋΰ]/g,'υ').replace(/[ωώΩΏ]/g,'ω').trim();
 
+    // Build a query using the first 2 significant words for better matching
+    const normWords = norm.split(' ').filter(w => w.length > 2);
+    const searchWord = normWords[0] || norm.split(' ')[0];
+
     // Find similar products across ALL supermarkets
     const candidates = await Product.find({
-      normalizedName: { $regex: norm.split(' ')[0], $options: 'i' },
-    }).sort({ price: 1 }).limit(30).lean();
+      normalizedName: { $regex: searchWord, $options: 'i' },
+      price: { $gt: 0 },
+    }).sort({ price: 1 }).limit(40).lean();
 
-    // Filter to different stores than current, or cheaper at same store
+    // Normalize the current product name for exact-match exclusion
+    const normCurrentName = normalize(productName);
+
+    // Filter: different store OR cheaper at same store, and NOT the exact same product
     const alternatives = candidates
-      .filter(p => p.price > 0 && (
-        p.supermarket.toLowerCase() !== currentStore.toLowerCase() ||
-        p.price < currentPrice
-      ))
+      .filter(p => {
+        if (p.price <= 0) return false;
+        const pNorm = normalize(p.name || '');
+        // Exclude exact same product (same name at same store)
+        if (pNorm === normCurrentName && p.supermarket.toLowerCase() === currentStore.toLowerCase()) return false;
+        // Include if: different store, OR cheaper at same store
+        return (
+          p.supermarket.toLowerCase() !== currentStore.toLowerCase() ||
+          p.price < currentPrice
+        );
+      })
+      // Sort: cheaper first, then by name similarity
+      .sort((a, b) => a.price - b.price)
       .slice(0, 6);
 
     if (alternatives.length === 0) {
@@ -479,37 +560,36 @@ router.get('/top-offers', async (req, res) => {
     const limit = Math.min(50, parseInt(req.query.limit) || 20);
     const store = req.query.store || '';
 
-    // Genuine markdowns: oldPrice strictly above the current price. The scraper
-    // never fills discountPercent, so we COMPUTE it here and sort by it. Sanity
-    // bounds drop bad data (price typos that imply >90% off or <5% "deals").
-    const match = {
+    const storeFilter = store ? { supermarket: { $regex: store, $options: 'i' } } : {};
+
+    // ── Strategy 1: genuine oldPrice markdowns ──────────────────────────────
+    const matchMarkdowns = {
       price: { $gt: 0 },
       oldPrice: { $gt: 0 },
       $expr: { $gt: ['$oldPrice', '$price'] },
+      ...storeFilter,
     };
-    if (store) match.supermarket = { $regex: store, $options: 'i' };
 
-    // Only surface deals from the most recent scrape window. Without this, old
-    // markdowns (sometimes weeks old, already expired in-store) linger in the
-    // collection and dominate "top offers", hurting trust.
-    const newest = await Product.findOne({ price: { $gt: 0 }, oldPrice: { $gt: 0 } })
+    // Extend look-back window: use newest product date as anchor, fall back to
+    // 30 days so the section always shows something even after a scrape gap.
+    const newestWithOld = await Product.findOne({ price: { $gt: 0 }, oldPrice: { $gt: 0 }, ...storeFilter })
       .sort({ dateScraped: -1 }).select('dateScraped').lean();
-    if (newest && newest.dateScraped) {
-      const RECENT_DAYS = 3;
-      match.dateScraped = { $gte: new Date(newest.dateScraped.getTime() - RECENT_DAYS * 86400000) };
+
+    if (newestWithOld?.dateScraped) {
+      // 7-day window from the most-recent discounted product (was 3, too strict)
+      matchMarkdowns.dateScraped = {
+        $gte: new Date(newestWithOld.dateScraped.getTime() - 7 * 86400000),
+      };
     }
 
-    const offers = await Product.aggregate([
-      { $match: match },
+    let offers = await Product.aggregate([
+      { $match: matchMarkdowns },
       { $addFields: {
           discount: {
             $round: [{ $multiply: [{ $divide: [{ $subtract: ['$oldPrice', '$price'] }, '$oldPrice'] }, 100] }, 0],
           },
       } },
-      // 10–60% keeps real promos; >60% is almost always bad data (oldPrice that
-      // is actually a per-kilo / per-case reference, e.g. "130gr salad was €15").
-      { $match: { discount: { $gte: 10, $lte: 60 } } },
-      // Keep the single best-discount row per product name (dedupe near-duplicates)
+      { $match: { discount: { $gte: 5, $lte: 70 } } }, // relaxed: 5–70% (was 10–60%)
       { $sort: { discount: -1, dateScraped: -1 } },
       { $group: { _id: '$normalizedName', doc: { $first: '$$ROOT' } } },
       { $replaceRoot: { newRoot: '$doc' } },
@@ -521,7 +601,32 @@ router.get('/top-offers', async (req, res) => {
       } },
     ]);
 
-    res.set('Cache-Control', 'public, max-age=600'); // 10 min — data refreshes daily
+    // ── Strategy 2: fallback to isOnSale / is1plus1 products when no oldPrice ──
+    if (offers.length === 0) {
+      const fallbackMatch = {
+        price: { $gt: 0 },
+        $or: [{ isOnSale: true }, { is1plus1: true }, { discountPercent: { $exists: true, $ne: null } }],
+        ...storeFilter,
+      };
+      const newest2 = await Product.findOne(fallbackMatch).sort({ dateScraped: -1 }).select('dateScraped').lean();
+      if (newest2?.dateScraped) {
+        fallbackMatch.dateScraped = { $gte: new Date(newest2.dateScraped.getTime() - 14 * 86400000) };
+      }
+
+      offers = await Product.find(fallbackMatch)
+        .sort({ dateScraped: -1, price: 1 })
+        .limit(limit)
+        .select('name price oldPrice supermarket imageUrl pricePerUnit discountPercent is1plus1 isOnSale dateScraped')
+        .lean()
+        .then(docs => docs.map(d => ({
+          ...d,
+          discount: d.discountPercent ? parseInt(d.discountPercent) :
+                    (d.is1plus1 ? 50 :
+                    (d.oldPrice > d.price ? Math.round((d.oldPrice - d.price) / d.oldPrice * 100) : 0)),
+        })));
+    }
+
+    res.set('Cache-Control', 'public, max-age=600');
     res.json(offers);
   } catch (err) {
     console.error('top-offers error:', err.message);
