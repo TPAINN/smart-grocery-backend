@@ -507,7 +507,7 @@ router.post('/substitute', async (req, res) => {
 
     // Find similar products across ALL supermarkets
     const candidates = await Product.find({
-      normalizedName: { $regex: searchWord, $options: 'i' },
+      normalizedName: { $regex: escapeRegex(searchWord), $options: 'i' },
       price: { $gt: 0 },
     }).sort({ price: 1 }).limit(40).lean();
 
@@ -560,7 +560,7 @@ router.get('/top-offers', async (req, res) => {
     const limit = Math.min(50, parseInt(req.query.limit) || 20);
     const store = req.query.store || '';
 
-    const storeFilter = store ? { supermarket: { $regex: store, $options: 'i' } } : {};
+    const storeFilter = store ? { supermarket: { $regex: escapeRegex(store), $options: 'i' } } : {};
 
     // ── Strategy 1: genuine oldPrice markdowns ──────────────────────────────
     const matchMarkdowns = {

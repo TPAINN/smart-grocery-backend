@@ -25,6 +25,11 @@ const strictLimiter = rateLimit({
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
+// Escape user input before embedding it in a RegExp — blocks regex injection
+// (e.g. key=".*" matching any user) and ReDoS via crafted patterns.
+const escapeRegex = (s = '') => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const shareKeyRegex = (key) => new RegExp(`^${escapeRegex(key)}$`, 'i');
+
 // Ensures every user has a persistent shareKey in MongoDB.
 // Fixes the "randomizing key" bug: if a user was created before the shareKey
 // field existed, mongoose applies the default() generator in memory but never
@@ -157,7 +162,7 @@ router.get('/by-key/:shareKey', async (req, res) => {
     if (!key || key.length < 6)
       return res.status(400).json({ message: 'Μη έγκυρο Share Key.' });
 
-    const user = await User.findOne({ shareKey: { $regex: new RegExp(`^${key}$`, 'i') } })
+    const user = await User.findOne({ shareKey: { $regex: shareKeyRegex(key) } })
       .select('name shareKey').lean();
     if (!user) return res.status(404).json({ message: 'Χρήστης δεν βρέθηκε.' });
 
@@ -177,8 +182,8 @@ router.get('/search', authMiddleware, async (req, res) => {
       $and: [
         { _id: { $ne: req.userId } },
         { $or: [
-          { name:  { $regex: q, $options: 'i' } },
-          { email: { $regex: q, $options: 'i' } },
+          { name:  { $regex: escapeRegex(q), $options: 'i' } },
+          { email: { $regex: escapeRegex(q), $options: 'i' } },
         ]},
       ]
     }).select('name shareKey _id').limit(10).lean();
@@ -208,7 +213,7 @@ router.post('/add-friend', authMiddleware, async (req, res) => {
       return res.status(400).json({ message: 'Δεν μπορείς να προσθέσεις τον εαυτό σου.' });
 
     const target = await User.findOne({
-      shareKey: { $regex: new RegExp(`^${key}$`, 'i') }
+      shareKey: { $regex: shareKeyRegex(key) }
     }).select('name shareKey friends').lean();
     if (!target) return res.status(404).json({ message: 'Χρήστης δεν βρέθηκε.' });
 
@@ -261,7 +266,7 @@ router.delete('/remove-friend/:targetShareKey', authMiddleware, async (req, res)
       $pull: { friends: { shareKey: key } }
     });
     await User.findOneAndUpdate(
-      { shareKey: { $regex: new RegExp(`^${key}$`, 'i') } },
+      { shareKey: { $regex: shareKeyRegex(key) } },
       { $pull: { friends: { shareKey: me.shareKey } } }
     );
 
@@ -375,7 +380,7 @@ router.post('/notify-friend', authMiddleware, async (req, res) => {
   if (!targetShareKey) return res.status(400).json({ message: 'Απαιτείται targetShareKey.' });
   try {
     const me     = await User.findById(req.userId).select('name shareKey friends').lean();
-    const target = await User.findOne({ shareKey: { $regex: new RegExp(`^${targetShareKey.trim().toUpperCase()}$`, 'i') } }).select('name shareKey friends').lean();
+    const target = await User.findOne({ shareKey: { $regex: shareKeyRegex(targetShareKey.trim().toUpperCase()) } }).select('name shareKey friends').lean();
     if (!target) return res.status(404).json({ message: 'Χρήστης δεν βρέθηκε.' });
 
     if (!target.friends.some(f => f.shareKey === me.shareKey)) {

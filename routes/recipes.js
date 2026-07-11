@@ -29,9 +29,11 @@ router.get('/', async (req, res) => {
       if (search.length >= 2) {
         filter.$text = { $search: search };
       } else {
+        // Escape so a lone regex metachar (e.g. "(") can't throw or inject
+        const safe = search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
         filter.$or = [
-          { title:       { $regex: search, $options: 'i' } },
-          { ingredients: { $regex: search, $options: 'i' } },
+          { title:       { $regex: safe, $options: 'i' } },
+          { ingredients: { $regex: safe, $options: 'i' } },
         ];
       }
     }
