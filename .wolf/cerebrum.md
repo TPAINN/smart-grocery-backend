@@ -45,6 +45,7 @@
 [2026-04-17] Do NOT call setIsServerWaking() from checkStatus() poll — only use it in the recipe fetch wakeTimer
 [2026-04-17] Do NOT forget greekUpsilonFold when building search variants — υ and ι are both needed for Greek search
 [2026-04-17] Do NOT use score filter > 5 for search — use > 10 to cut low-penalty pet/flavor-only results
+[2026-07-11] Do NOT embed user input in RegExp/$regex without escapeRegex — shareKey/search/store params allowed regex injection (key=.* matched any user) and ReDoS. auth.js now has escapeRegex + shareKeyRegex helpers; prices.js and mealplan.js have their own escapeRegex. Always use them for any new $regex query.
 
 ## Decision Log
 
