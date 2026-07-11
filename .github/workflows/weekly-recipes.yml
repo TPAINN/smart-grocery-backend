@@ -1,0 +1,70 @@
+name: 🍳 Weekly Recipe Scraper
+
+on:
+  # Κυριακή + Τετάρτη 04:00 UTC (07:00 Ελλάδας) — πριν τον daily grocery scraper
+  schedule:
+    - cron: '0 4 * * 0,3'
+  workflow_dispatch:
+    inputs:
+      site:
+        description: 'Specific site key to scrape (empty = ALL sites)'
+        required: false
+        default: ''
+
+jobs:
+  scrape-recipes:
+    name: Scrape recipe sites
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+
+      # Ίδιο pattern με τον daily scraper: system Chrome, όχι puppeteer download
+      - name: Install dependencies
+        run: npm ci
+        env:
+          PUPPETEER_SKIP_DOWNLOAD: 'true'
+
+      - name: Install Google Chrome
+        run: |
+          wget -q -O /tmp/chrome.deb https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq /tmp/chrome.deb
+          CHROME_BIN="$(command -v google-chrome-stable)"
+          "$CHROME_BIN" --version
+          echo "PUPPETEER_EXECUTABLE_PATH=$CHROME_BIN" >> "$GITHUB_ENV"
+
+      - name: Run recipe scraper
+        env:
+          MONGO_URI: ${{ secrets.MONGO_URI }}
+          NODE_OPTIONS: '--max-old-space-size=3072'
+          TARGET_SITE: ${{ github.event.inputs.site }}
+        run: |
+          node -e "
+            require('node:dns/promises').setServers(['1.1.1.1','8.8.8.8']);
+            const mongoose = require('mongoose');
+            const { scrapeWebRecipes } = require('./services/webRecipeScraper');
+            (async () => {
+              await mongoose.connect(process.env.MONGO_URI, { maxPoolSize: 3, serverSelectionTimeoutMS: 15000 });
+              await scrapeWebRecipes(process.env.TARGET_SITE || null);
+              await mongoose.disconnect();
+              console.log('✅ Recipe scrape complete');
+              process.exit(0);
+            })().catch(e => { console.error(e); process.exit(1); });
+          "
+
+      - name: Job summary
+        if: always()
+        run: |
+          echo "## 🍳 Recipe Scraper Summary" >> $GITHUB_STEP_SUMMARY
+          echo "- **Date**: $(date -u '+%Y-%m-%d %H:%M UTC')" >> $GITHUB_STEP_SUMMARY
+          echo "- **Status**: ${{ job.status }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Trigger**: ${{ github.event_name }}" >> $GITHUB_STEP_SUMMARY
