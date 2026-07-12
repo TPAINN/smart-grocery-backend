@@ -893,7 +893,7 @@ async function scrapeWebRecipes(siteKey = 'all') {
                         ingredients:  cleanIngredients,
                         instructions: cleanInstructions,
                         tags,
-                        cuisine:      raw.cuisine || 'Ελληνική',
+                        cuisine:      /^greek$/i.test(raw.cuisine || '') ? 'Ελληνική' : (raw.cuisine || 'Ελληνική'),
                         category,
                         sourceApi:    key,           // 'akis' | 'panos' | 'gymbeam' | etc.
                         url,
@@ -943,6 +943,9 @@ const RECIPE_CAP = parseInt(process.env.RECIPE_CAP || '50', 10);
 
 async function enforceRecipeCap(cap = RECIPE_CAP) {
     const Favorite = require('../models/Favorite');
+
+    // Data hygiene: older rows saved English cuisine labels from JSON-LD
+    await Recipe.updateMany({ cuisine: /^greek$/i }, { $set: { cuisine: 'Ελληνική' } });
 
     const total = await Recipe.countDocuments();
     if (total <= cap) {
