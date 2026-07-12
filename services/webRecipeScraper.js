@@ -264,7 +264,10 @@ async function getAkisLinks(page, max) {
 }
 
 async function parseAkisRecipe(page, url) {
-    await page.goto(url, { waitUntil: 'networkidle2', timeout: 30000 });
+    // domcontentloaded + explicit JSON-LD wait: networkidle2 hung forever on
+    // pages whose ad/analytics connections never settle (5 timeouts per run).
+    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+    await page.waitForSelector('script[type="application/ld+json"]', { timeout: 8000 }).catch(() => {});
 
     return page.evaluate(() => {
         const ld = [...document.querySelectorAll('script[type="application/ld+json"]')]
