@@ -198,15 +198,58 @@ const AKIS_SEED_URLS = [
 ];
 
 async function getAkisLinks(page, max) {
-    const links = new Set(AKIS_SEED_URLS);
+    const links = new Set();
 
-    // From each seed page, harvest any related/suggested recipe links
+    // 1) Sitemap first — canonical, complete, no guessed IDs, no 404s.
+    //    Akis exposes standard sitemaps; recipe URLs match /recipe/<id>/<slug>.
+    const SITEMAP_URLS = [
+        'https://akispetretzikis.com/sitemap.xml',
+        'https://akispetretzikis.com/sitemap_index.xml',
+    ];
+    for (const smUrl of SITEMAP_URLS) {
+        if (links.size >= max) break;
+        try {
+            await page.goto(smUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
+            const xml = await page.evaluate(() => document.body?.innerText || document.documentElement.outerHTML);
+            // Follow one level of sitemap-index nesting if present
+            const childMaps = [...xml.matchAll(/<loc>\s*(https?:\/\/[^<]*sitemap[^<]*\.xml)\s*<\/loc>/gi)]
+                .map(m => m[1]).slice(0, 6);
+            const texts = [xml];
+            for (const child of childMaps) {
+                try {
+                    await page.goto(child, { waitUntil: 'domcontentloaded', timeout: 30000 });
+                    texts.push(await page.evaluate(() => document.body?.innerText || document.documentElement.outerHTML));
+                } catch { /* skip child map */ }
+            }
+            for (const t of texts) {
+                for (const m of t.matchAll(/https?:\/\/akispetretzikis\.com\/recipe\/\d+\/[a-z0-9-]+/gi)) {
+                    links.add(m[0]);
+                }
+            }
+            if (links.size) console.log(`  🗺️  Akis sitemap: ${links.size} recipe URLs`);
+        } catch (e) {
+            console.log(`  ⚠️  Akis sitemap ${smUrl}: ${e.message}`);
+        }
+        if (links.size) break; // first working sitemap is enough
+    }
+
+    // Newest recipes have the highest IDs — prefer them so the feed stays fresh
+    if (links.size > max) {
+        const sorted = [...links].sort((a, b) => {
+            const ida = parseInt(a.match(/\/recipe\/(\d+)\//)?.[1] || 0);
+            const idb = parseInt(b.match(/\/recipe\/(\d+)\//)?.[1] || 0);
+            return idb - ida;
+        });
+        return sorted.slice(0, max);
+    }
+
+    // 2) Fallback: crawl seed pages and harvest related-recipe links
+    AKIS_SEED_URLS.forEach(u => links.add(u));
     for (const seedUrl of AKIS_SEED_URLS) {
         if (links.size >= max) break;
         try {
             await page.goto(seedUrl, { waitUntil: 'networkidle2', timeout: 30000 });
-            // Wait a bit for React to render related recipes section
-            await delay(2500);
+            await delay(2500); // let React render the related-recipes section
             const found = await page.$$eval(
                 'a[href*="/recipe/"]',
                 els => [...new Set(els.map(el => el.href).filter(h => /\/recipe\/\d+\//.test(h)))]
@@ -773,11 +816,24 @@ async function scrapeWebRecipes(siteKey = 'all') {
                         continue;
                     }
 
-                    const raw = await cfg.parseRecipe(page, url);
+                    // One retry on transient navigation failures (timeouts, resets)
+                    let raw;
+                    try {
+                        raw = await cfg.parseRecipe(page, url);
+                    } catch (navErr) {
+                        if (/timeout|net::|Navigation/i.test(navErr.message)) {
+                            await delay(2000);
+                            raw = await cfg.parseRecipe(page, url);
+                        } else {
+                            throw navErr;
+                        }
+                    }
 
-                    // Require at least a title + some ingredients or instructions
+                    // No usable recipe on the page (non-recipe post, layout change,
+                    // 404 redirect) — that's a quality skip, not an error.
                     if (!raw?.title || (!raw.ingredients?.length && !raw.instructions?.length)) {
-                        errors++;
+                        skipped++;
+                        console.log(`  ⏭️  no recipe content: ${url.split('/').slice(-1)[0].substring(0, 50)}`);
                         continue;
                     }
 
@@ -868,7 +924,46 @@ async function scrapeWebRecipes(siteKey = 'all') {
     }
 
     console.log(`\n🍳 Web recipes done! Total: +${totalAdded} added, ${totalSkipped} skipped, ${totalErrors} errors`);
+
+    // Rolling freshness: keep the DB at RECIPE_CAP recipes max.
+    try {
+        await enforceRecipeCap();
+    } catch (e) {
+        console.error('⚠️ Recipe cap enforcement failed:', e.message);
+    }
+
     return { added: totalAdded, skipped: totalSkipped, errors: totalErrors };
 }
 
-module.exports = { scrapeWebRecipes, SITES };
+// ── DB cap: keep only the newest N recipes (favorites are never deleted) ──────
+const RECIPE_CAP = parseInt(process.env.RECIPE_CAP || '50', 10);
+
+async function enforceRecipeCap(cap = RECIPE_CAP) {
+    const Favorite = require('../models/Favorite');
+
+    const total = await Recipe.countDocuments();
+    if (total <= cap) {
+        console.log(`🧹 Recipe cap: ${total}/${cap} — nothing to prune`);
+        return { deleted: 0, total };
+    }
+
+    // Never delete a recipe someone has favorited
+    const favoritedIds = await Favorite.distinct('recipeId', { recipeId: { $ne: null } });
+
+    // Keep the newest `cap` recipes; everything older AND unfavorited goes
+    const keep = await Recipe.find({}, { _id: 1 })
+        .sort({ createdAt: -1 })
+        .limit(cap)
+        .lean();
+    const keepIds = keep.map(r => r._id);
+
+    const res = await Recipe.deleteMany({
+        _id: { $nin: [...keepIds, ...favoritedIds] },
+    });
+
+    const after = await Recipe.countDocuments();
+    console.log(`🧹 Recipe cap: pruned ${res.deletedCount} old recipes → ${after}/${cap} (favorites protected: ${favoritedIds.length})`);
+    return { deleted: res.deletedCount, total: after };
+}
+
+module.exports = { scrapeWebRecipes, enforceRecipeCap, SITES };
