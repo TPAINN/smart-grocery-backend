@@ -348,45 +348,6 @@ async function parsePanosRecipe(page, url) {
         const allLines = contentText.split('\n').map(s => s.trim()).filter(s => s.length > 20);
 
         // Macros — each .nutri-fact has "label\nVALUEunit\n%"
-        const collapseLine = (s = '') => s.replace(/\s+/g, ' ').trim();
-        const normalizeLine = (s = '') => collapseLine(s)
-            .toLowerCase()
-            .normalize('NFD')
-            .replace(/[\u0300-\u036f]/g, '');
-        const isNoiseLine = (s = '') => {
-            const line = normalizeLine(s).replace(/[:.]+$/g, '');
-            const letters = collapseLine(s).replace(/[^A-Za-zΑ-Ωα-ω]/g, '');
-            const isAllCaps = letters.length >= 6 && letters === letters.toUpperCase();
-            return !line ||
-                line.includes('gymbeam') ||
-                line.includes('μπορει να σας ενδιαφερουν') ||
-                line.includes('δειτε επισης') ||
-                line.includes('related products') ||
-                line.includes('προιοντα') ||
-                /^(bio\s+|απο\s+\d+)/.test(line) ||
-                /^(για\s+(τη|την|το|τον)\b)/.test(line) ||
-                /^(υλικα|συστατικα|εκτελεση|οδηγιες|παρασκευη)\b/.test(line) ||
-                s.includes('€') ||
-                isAllCaps;
-        };
-        const cleanItemLine = (s = '') => collapseLine(s)
-            .replace(/^[•·▪●]\s*/, '')
-            .replace(/^[-–—]\s*/, '')
-            .replace(/^\d+[.)]\s*/, '')
-            .replace(/^(FITNESS\s+)?ΣΥΝΤΑΓ[ΗΉ]\s*(FITNESS\s*)?:\s*/i, '')
-            .trim();
-        const cleanIngredients = ingredients
-            .map(cleanItemLine)
-            .filter(s => s.length > 1 && s.length < 120 && !isNoiseLine(s));
-        const cleanInstructions = (() => {
-            const base = instructions.length
-                ? instructions
-                : (execText || fullText.split('\n\n').slice(1).join('\n')).split(/\n{2,}|\n|(?<=[.!?])\s+(?=[A-ZΑ-Ω])/);
-            return base
-                .map(cleanItemLine)
-                .filter(s => s.length > 15 && !isNoiseLine(s));
-        })();
-
         const macroMap = {};
         [...document.querySelectorAll('.nutri-fact')].forEach(el => {
             const t = el.innerText;
