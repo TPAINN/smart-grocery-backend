@@ -54,7 +54,7 @@ jobs:
             const { scrapeWebRecipes } = require('./services/webRecipeScraper');
             (async () => {
               await mongoose.connect(process.env.MONGO_URI, { maxPoolSize: 3, serverSelectionTimeoutMS: 15000 });
-              await scrapeWebRecipes(process.env.TARGET_SITE || null);
+              await scrapeWebRecipes(process.env.TARGET_SITE || 'all');
               await mongoose.disconnect();
               console.log('✅ Recipe scrape complete');
               process.exit(0);
