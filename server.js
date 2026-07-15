@@ -418,7 +418,7 @@ io.on('connection', (socket) => {
         }
       }
     } catch (err) {
-      console.error('❌ Message save error:', err);
+      console.error('❌ Message save error:', err.message);
     }
   });
 

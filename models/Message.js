@@ -10,9 +10,10 @@ const messageSchema = new mongoose.Schema({
     createdAt: {
         type: Date,
         default: Date.now,
-        // 🚨 ΕΔΩ ΕΙΝΑΙ Η ΜΑΓΕΙΑ (TTL): Διαγράφεται αυτόματα μετά από 86400 δευτερόλεπτα (24 ώρες)
-        expires: 86400
     }
 });
+
+// TTL index for auto-expiry - messages expire after 24 hours
+messageSchema.index({ createdAt: 1 }, { expires: 86400 });
 
 module.exports = mongoose.model('Message', messageSchema);
