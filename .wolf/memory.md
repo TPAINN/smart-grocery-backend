@@ -19,3 +19,4 @@
 | 17:00 | platescanner.js v2: added healthScore, vitamins, sugar, /analyze-text, clarifying questions | routes/platescanner.js | done | ~2500 |
 | 16:09 | Fixed Lidl scraper (data-grid-data JSON attr + imageList/image/cutoutimageV2), fixed AB (AB_URLS constant), fixed Galaxias img, reduced Render concurrency to 3 for 512MB RAM, added dateScraped to upserts, added debug-scrape endpoint | services/scraper.js, server.js | pushed fc54fb7..394ecd2 | ~8k tokens |
 | 05:38 | Trial reminder: User.trialReminderSent flag, sendTrialReminderEmail template, daily cron 07:00 UTC (services/trialReminder.js) wired in server.js | models/User.js, services/* | syntax OK, server boots | - |
+| 13:31 | regex-injection/ReDoS escaping + junk cleanup | auth.js,prices.js,recipes.js,package.json | shipped f9d264c, verified 404 live | ~20k |
