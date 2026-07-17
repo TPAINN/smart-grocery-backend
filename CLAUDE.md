@@ -1,8 +1,10 @@
 # OpenWolf
 
-@.wolf/OPENWOLF.md
-
-This project uses OpenWolf for context management. Read and follow .wolf/OPENWOLF.md every session. Check .wolf/cerebrum.md before generating code. Check .wolf/anatomy.md before reading files.
+This project uses OpenWolf for context management. The full protocol lives in
+`.wolf/OPENWOLF.md` — **read it on demand** (it is NOT auto-injected, to save
+tokens). Quick rules: check `.wolf/anatomy.md` before reading a file,
+`.wolf/cerebrum.md` before generating code, and after fixing something append to
+`.wolf/buglog.json` + `.wolf/memory.md`.
 
 
 # Claude Project Instructions & Behavioral Rules
