@@ -3,7 +3,6 @@ require('dotenv').config();
 const cron = require('node-cron');
 const Product = require('../models/Product');
 const fs = require('fs');
-const path = require('path');
 const puppeteer = require('puppeteer-extra');
 const StealthPlugin = require('puppeteer-extra-plugin-stealth');
 puppeteer.use(StealthPlugin());
@@ -156,6 +155,32 @@ const STORE_CONFIGS = {
 };
 
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
+/**
+ * Merge freshly-scraped products into the running dedupe map, keyed by normalizedName.
+ * Returns true if at least one new product was added (used to reset stall counters).
+ * @param {Array<object>} products
+ * @param {Map<string, object>} allFound
+ * @returns {boolean}
+ */
+const mergeNewProducts = (products, allFound) => {
+    let addedNew = false;
+    products.forEach(p => {
+        if (!allFound.has(p.normalizedName)) {
+            allFound.set(p.normalizedName, p);
+            addedNew = true;
+        }
+    });
+    return addedNew;
+};
+
+// ── Timing / retry constants ──────────────────────────────────────────
+const TASK_RETRY_COUNT = 3;
+const PAGE_NAV_TIMEOUT_MS = 60000;
+const POST_NAV_SETTLE_MS = 1000;
+const COOKIE_BANNER_SETTLE_MS = 1000;
+const RETRY_BACKOFF_MS = 3000;
+const CLUSTER_TASK_TIMEOUT_MS = 600000;
 
 // 🟢 Η Μπάρα Προόδου στο CLI
 let globalIsScraping = false; 
@@ -387,8 +412,7 @@ async function scrapeSklavenitis(page, storeName, config, allFound) {
     let keepGoing = true; let fails = 0;
     while (keepGoing) {
         const products = await page.evaluate(extractDataInBrowser, storeName, config);
-        let addedNew = false;
-        products.forEach(p => { if (!allFound.has(p.normalizedName)) { allFound.set(p.normalizedName, p); addedNew = true; }});
+        const addedNew = mergeNewProducts(products, allFound);
         if (addedNew) { fails = 0; } else { fails++; }
         const status = await page.evaluate(() => {
             const counter = document.querySelector('span.current-page');
@@ -475,8 +499,7 @@ async function scrapeAB(page, storeName, config, allFound, categoryUrl) {
         let fails2 = 0;
         while (fails2 < 8) {
             const prods = await page.evaluate(extractDataInBrowser, storeName, config);
-            let addedNew = false;
-            prods.forEach(p => { if (!allFound.has(p.normalizedName)) { allFound.set(p.normalizedName, p); addedNew = true; } });
+            const addedNew = mergeNewProducts(prods, allFound);
             if (addedNew) fails2 = 0; else fails2++;
             await page.evaluate(() => window.scrollBy(0, window.innerHeight * 3));
             await sleep(1500);
@@ -491,8 +514,7 @@ async function scrapeGalaxias(page, storeName, config, allFound) {
     let fails = 0;
     while (fails < 12) {
         const products = await page.evaluate(extractDataInBrowser, storeName, config);
-        let addedNew = false;
-        products.forEach(p => { if (!allFound.has(p.normalizedName)) { allFound.set(p.normalizedName, p); addedNew = true; }});
+        const addedNew = mergeNewProducts(products, allFound);
         if (addedNew) { fails = 0; } else { fails++; }
 
         // Try clicking a "load more" button if present
@@ -526,8 +548,7 @@ async function scrapeMyMarket(page, storeName, config, allFound) {
         await sleep(600);
 
         const products = await page.evaluate(extractDataInBrowser, storeName, config);
-        let addedNew = false;
-        products.forEach(p => { if (!allFound.has(p.normalizedName)) { allFound.set(p.normalizedName, p); addedNew = true; } });
+        const addedNew = mergeNewProducts(products, allFound);
         if (addedNew) fails = 0; else fails++;
 
         const hasNext = await page.evaluate((sel) => {
@@ -565,8 +586,7 @@ async function scrapeMasoutis(page, storeName, config, allFound) {
     let fails = 0;
     while (fails < 20) {
         const products = await page.evaluate(extractDataInBrowser, storeName, config);
-        let addedNew = false;
-        products.forEach(p => { if (!allFound.has(p.normalizedName)) { allFound.set(p.normalizedName, p); addedNew = true; }});
+        const addedNew = mergeNewProducts(products, allFound);
         if (addedNew) { fails = 0; } else { fails++; }
 
         // Scroll down multiple steps to trigger infinite scroll
@@ -592,8 +612,7 @@ async function scrapeKritikos(page, storeName, config, allFound) {
 
     while (fails < 15) {
         const products = await page.evaluate(extractDataInBrowser, storeName, config);
-        let addedNew = false;
-        products.forEach(p => { if (!allFound.has(p.normalizedName)) { allFound.set(p.normalizedName, p); addedNew = true; }});
+        const addedNew = mergeNewProducts(products, allFound);
         
         if (addedNew) { fails = 0; } else { fails++; }
         
@@ -705,7 +724,7 @@ async function scrapeTask({ page, data: { url, storeName } }) {
     const allFound = new Map();
     
     // Retry Logic
-    let retries = 3;
+    let retries = TASK_RETRY_COUNT;
     while (retries > 0) {
         try {
             await page.setViewport({ width: 1920, height: 1080 });
@@ -718,9 +737,9 @@ async function scrapeTask({ page, data: { url, storeName } }) {
                 else req.continue();
             });
 
-            await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 });
+            await page.goto(url, { waitUntil: 'domcontentloaded', timeout: PAGE_NAV_TIMEOUT_MS });
             await page.bringToFront();
-            await sleep(1000);
+            await sleep(POST_NAV_SETTLE_MS);
 
             // Cookies & Banners
             try { 
@@ -732,7 +751,7 @@ async function scrapeTask({ page, data: { url, storeName } }) {
                     const banners = document.querySelectorAll('#onetrust-banner-sdk, .cookie-banner,[class*="overlay"]');
                     banners.forEach(b => b.remove());
                 }); 
-                await sleep(1000); 
+                await sleep(COOKIE_BANNER_SETTLE_MS);
             } catch(e){}
 
             // 🎯 DELEGATION
@@ -752,7 +771,7 @@ async function scrapeTask({ page, data: { url, storeName } }) {
         } catch (error) {
             retries--;
             if (retries === 0) { console.log(`\n❌ Οριστική Αποτυχία στο ${url}: ${error.message}`); }
-            else { await sleep(3000); }
+            else { await sleep(RETRY_BACKOFF_MS); }
         }
     }
 
@@ -901,7 +920,7 @@ async function runWebScraper(targetStore = null) {
     const cluster = await Cluster.launch({
         concurrency: concurrencyMode,
         maxConcurrency,
-        timeout: 600000,
+        timeout: CLUSTER_TASK_TIMEOUT_MS,
         puppeteerOptions: {
             headless: isLocal ? false : "new",
             defaultViewport: { width: 1280, height: 800 },
