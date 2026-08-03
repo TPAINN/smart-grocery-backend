@@ -9,6 +9,15 @@ puppeteer.use(StealthPlugin());
 const Recipe = require('../models/Recipe');
 const { estimateMacros } = require('./macroEstimator');
 
+// ── Timing constants ─────────────────────────────────────────────────────────
+const PAGE_NAV_TIMEOUT_MS = 30000;   // standard page.goto timeout across all sites
+const JSONLD_WAIT_TIMEOUT_MS = 8000; // Akis: wait for JSON-LD script tag to appear
+const COOKIE_POPUP_CLICK_DELAY_MS = 600;
+const RELATED_RECIPES_RENDER_DELAY_MS = 2500; // let React render related-recipe links
+const NAV_RETRY_DELAY_MS = 2000;
+const CRAWL_DELAY_BASE_MS = 800;
+const CRAWL_DELAY_JITTER_MS = 700; // polite random delay added to CRAWL_DELAY_BASE_MS
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 /** Strip HTML tags, decode entities, collapse whitespace */
@@ -209,7 +218,7 @@ async function getAkisLinks(page, max) {
     for (const smUrl of SITEMAP_URLS) {
         if (links.size >= max) break;
         try {
-            await page.goto(smUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
+            await page.goto(smUrl, { waitUntil: 'domcontentloaded', timeout: PAGE_NAV_TIMEOUT_MS });
             const xml = await page.evaluate(() => document.body?.innerText || document.documentElement.outerHTML);
             // Follow one level of sitemap-index nesting if present
             const childMaps = [...xml.matchAll(/<loc>\s*(https?:\/\/[^<]*sitemap[^<]*\.xml)\s*<\/loc>/gi)]
@@ -217,7 +226,7 @@ async function getAkisLinks(page, max) {
             const texts = [xml];
             for (const child of childMaps) {
                 try {
-                    await page.goto(child, { waitUntil: 'domcontentloaded', timeout: 30000 });
+                    await page.goto(child, { waitUntil: 'domcontentloaded', timeout: PAGE_NAV_TIMEOUT_MS });
                     texts.push(await page.evaluate(() => document.body?.innerText || document.documentElement.outerHTML));
                 } catch { /* skip child map */ }
             }
@@ -248,8 +257,8 @@ async function getAkisLinks(page, max) {
     for (const seedUrl of AKIS_SEED_URLS) {
         if (links.size >= max) break;
         try {
-            await page.goto(seedUrl, { waitUntil: 'networkidle2', timeout: 30000 });
-            await delay(2500); // let React render the related-recipes section
+            await page.goto(seedUrl, { waitUntil: 'networkidle2', timeout: PAGE_NAV_TIMEOUT_MS });
+            await delay(RELATED_RECIPES_RENDER_DELAY_MS);
             const found = await page.$$eval(
                 'a[href*="/recipe/"]',
                 els => [...new Set(els.map(el => el.href).filter(h => /\/recipe\/\d+\//.test(h)))]
@@ -266,8 +275,8 @@ async function getAkisLinks(page, max) {
 async function parseAkisRecipe(page, url) {
     // domcontentloaded + explicit JSON-LD wait: networkidle2 hung forever on
     // pages whose ad/analytics connections never settle (5 timeouts per run).
-    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
-    await page.waitForSelector('script[type="application/ld+json"]', { timeout: 8000 }).catch(() => {});
+    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: PAGE_NAV_TIMEOUT_MS });
+    await page.waitForSelector('script[type="application/ld+json"]', { timeout: JSONLD_WAIT_TIMEOUT_MS }).catch(() => {});
 
     return page.evaluate(() => {
         const ld = [...document.querySelectorAll('script[type="application/ld+json"]')]
@@ -313,7 +322,7 @@ async function getPanosLinks(page, max) {
             const url = pageNum === 1
                 ? 'https://www.panosioannidis.com/syntages/'
                 : `https://www.panosioannidis.com/syntages/page/${pageNum}/`;
-            await page.goto(url, { waitUntil: 'networkidle2', timeout: 30000 });
+            await page.goto(url, { waitUntil: 'networkidle2', timeout: PAGE_NAV_TIMEOUT_MS });
             const found = await page.$$eval(
                 'a[href*="/recipe/"]',
                 els => [...new Set(els.map(el => el.href).filter(h => h.includes('/recipe/')))]
@@ -330,7 +339,7 @@ async function getPanosLinks(page, max) {
 }
 
 async function parsePanosRecipe(page, url) {
-    await page.goto(url, { waitUntil: 'networkidle2', timeout: 30000 });
+    await page.goto(url, { waitUntil: 'networkidle2', timeout: PAGE_NAV_TIMEOUT_MS });
 
     return page.evaluate(() => {
         const title = document.querySelector('h1')?.innerText?.trim();
@@ -397,7 +406,7 @@ async function getGymBeamLinks(page, max) {
             const url = pageNum === 1
                 ? 'https://gymbeam.gr/blog/fitness-suntages/'
                 : `https://gymbeam.gr/blog/fitness-suntages/page/${pageNum}/`;
-            await page.goto(url, { waitUntil: 'networkidle2', timeout: 30000 });
+            await page.goto(url, { waitUntil: 'networkidle2', timeout: PAGE_NAV_TIMEOUT_MS });
 
             // Wait for at least one article to render (WordPress blog — no heavy JS)
             await page.waitForSelector('article', { timeout: 8000 }).catch(() => {});
@@ -431,7 +440,7 @@ async function getGymBeamLinks(page, max) {
 }
 
 async function parseGymBeamRecipe(page, url) {
-    await page.goto(url, { waitUntil: 'networkidle2', timeout: 30000 });
+    await page.goto(url, { waitUntil: 'networkidle2', timeout: PAGE_NAV_TIMEOUT_MS });
 
     return page.evaluate(() => {
         const title = document.querySelector('h1')?.innerText?.trim();
@@ -566,12 +575,12 @@ async function getWpLinks(page, siteKey, max) {
     for (const listUrl of cfg.listUrls) {
         if (links.size >= max) break;
         try {
-            await page.goto(listUrl, { waitUntil: 'networkidle2', timeout: 30000 });
+            await page.goto(listUrl, { waitUntil: 'networkidle2', timeout: PAGE_NAV_TIMEOUT_MS });
 
             // Dismiss cookie popup if present
             for (const sel of ['.cmplz-accept', '.cookiebot-accept', '#acceptBtn', 'button[class*="accept"]']) {
                 const btn = await page.$(sel);
-                if (btn) { await btn.click(); await delay(600); break; }
+                if (btn) { await btn.click(); await delay(COOKIE_POPUP_CLICK_DELAY_MS); break; }
             }
 
             const found = await page.$$eval(
@@ -593,7 +602,7 @@ async function getWpLinks(page, siteKey, max) {
 }
 
 async function parseWpRecipe(page, url) {
-    await page.goto(url, { waitUntil: 'networkidle2', timeout: 30000 });
+    await page.goto(url, { waitUntil: 'networkidle2', timeout: PAGE_NAV_TIMEOUT_MS });
 
     return page.evaluate(() => {
         const clean = s => (s || '').replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ').trim();
@@ -786,7 +795,7 @@ async function scrapeWebRecipes(siteKey = 'all') {
                         raw = await cfg.parseRecipe(page, url);
                     } catch (navErr) {
                         if (/timeout|net::|Navigation/i.test(navErr.message)) {
-                            await delay(2000);
+                            await delay(NAV_RETRY_DELAY_MS);
                             raw = await cfg.parseRecipe(page, url);
                         } else {
                             throw navErr;
@@ -865,7 +874,7 @@ async function scrapeWebRecipes(siteKey = 'all') {
                     console.log(`  ✅ ${raw.title.substring(0, 60)}`);
 
                     // Polite crawl delay
-                    await delay(800 + Math.random() * 700);
+                    await delay(CRAWL_DELAY_BASE_MS + Math.random() * CRAWL_DELAY_JITTER_MS);
 
                 } catch (e) {
                     if (e.code === 11000) {
