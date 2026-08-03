@@ -3,7 +3,6 @@
 const express = require('express');
 const router  = express.Router();
 const Product           = require('../models/Product');
-const Recipe            = require('../models/Recipe');
 const MealPlanFeedback  = require('../models/MealPlanFeedback');
 const { callAI } = require('../services/aiService');
 const authMiddleware = require('../middleware/authMiddleware');
