@@ -13,7 +13,7 @@ on:
         required: true
         default: 'report'
         type: choice
-        options: [report, prune]
+        options: [report, drop-index, prune]
       keep_days:
         description: 'Days of price history to keep (prune only)'
         required: false
@@ -51,11 +51,17 @@ jobs:
           MONGO_URI: ${{ secrets.MONGO_URI }}
         run: |
           ARGS=""
-          if [ "${{ inputs.mode }}" = "prune" ]; then
-            ARGS="--prune --keep-days=${{ inputs.keep_days || 60 }}"
-            if [ "${{ inputs.confirm }}" = "true" ]; then
-              ARGS="$ARGS --confirm"
-            fi
+          case "${{ inputs.mode }}" in
+            drop-index)
+              # Frees index bytes without deleting a single document.
+              ARGS="--drop-unused-indexes"
+              ;;
+            prune)
+              ARGS="--prune --keep-days=${{ inputs.keep_days || 60 }}"
+              ;;
+          esac
+          if [ -n "$ARGS" ] && [ "${{ inputs.confirm }}" = "true" ]; then
+            ARGS="$ARGS --confirm"
           fi
           echo "Running: storage-maintenance.js $ARGS"
           node scripts/storage-maintenance.js $ARGS
