@@ -70,6 +70,21 @@ const QUOTA_MB = 512;
   console.log(`  ${'TOTAL'.padEnd(20)} ${mb(clusterTotal).padStart(10)}  of ${QUOTA_MB} MB`);
 
   const db = conn.useDb('smart_grocery', { useCache: true }).db;
+
+  /* listDatabases' sizeOnDisk under-reports what Atlas bills against the M0
+     quota: it misses index bytes and, crucially, space WiredTiger has
+     allocated but not returned after deletes. A daily scrape that replaces
+     66k rows churns heavily, so the gap between "data" and "allocated" is
+     where a cluster can be full at 512 MB while the documents only account
+     for half that. Print both so a prune is aimed at the real consumer. */
+  const st = await db.command({ dbStats: 1, freeStorage: 1 });
+  console.log('\n── smart_grocery, allocated vs used ─────────────────────');
+  console.log(`  data (uncompressed)  ${mb(st.dataSize || 0).padStart(10)}`);
+  console.log(`  storage allocated    ${mb(st.storageSize || 0).padStart(10)}`);
+  console.log(`  indexes              ${mb(st.indexSize || 0).padStart(10)}`);
+  console.log(`  reusable (freed)     ${mb(st.freeStorageSize || 0).padStart(10)}`);
+  console.log(`  ON-DISK TOTAL        ${mb((st.storageSize || 0) + (st.indexSize || 0)).padStart(10)}`);
+
   const cols = await db.listCollections().toArray();
 
   console.log('\n── smart_grocery collections ────────────────────────────');
@@ -77,11 +92,16 @@ const QUOTA_MB = 512;
   for (const c of cols) {
     const s = await db.command({ collStats: c.name }).catch(() => null);
     if (!s) continue;
-    rows.push({ name: c.name, count: s.count || 0, size: (s.storageSize || 0) + (s.totalIndexSize || 0) });
+    rows.push({
+      name: c.name, count: s.count || 0,
+      size: (s.storageSize || 0) + (s.totalIndexSize || 0),
+      idx: s.totalIndexSize || 0,
+      free: s.wiredTiger?.['block-manager']?.['file bytes available for reuse'] || 0,
+    });
   }
   rows.sort((a, b) => b.size - a.size);
   for (const r of rows) {
-    console.log(`  ${r.name.padEnd(22)} ${String(r.count).padStart(9)} docs  ${mb(r.size).padStart(10)}`);
+    console.log(`  ${r.name.padEnd(22)} ${String(r.count).padStart(9)} docs  ${mb(r.size).padStart(10)}  (idx ${mb(r.idx)}, reusable ${mb(r.free)})`);
   }
 
   const ph = db.collection('pricehistories');
