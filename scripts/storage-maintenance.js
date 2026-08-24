@@ -37,6 +37,7 @@ const has = (f) => argv.includes(`--${f}`);
 const val = (f) => argv.find((a) => a.startsWith(`--${f}=`))?.split('=')[1];
 
 const PRUNE = has('prune');
+const DROP_INDEX = has('drop-unused-indexes');
 const CONFIRM = has('confirm');
 const KEEP_DAYS = Number(val('keep-days') ?? 60);
 
@@ -115,6 +116,33 @@ const QUOTA_MB = 512;
   console.log(`  total            ${phTotal}`);
   console.log(`  older than ${String(KEEP_DAYS).padStart(3)}d   ${phOld}   (day < ${cutoffDay})`);
   console.log(`  TTL index        ${(await ph.indexes()).some((i) => i.expireAfterSeconds != null) ? 'present' : 'MISSING — grows forever'}`);
+
+  /* Indexes are 29% of this cluster's quota, and `pricehistories` carries
+     115 MB of them across two. The unique {normalizedName, supermarket, day}
+     enforces one snapshot per product/chain/day and must stay. The second,
+     {normalizedName, day}, exists purely to read a price series back — a
+     feature the frontend no longer has. Dropping it frees index bytes without
+     touching a single document, and it can be recreated in one command if
+     price history ever returns. */
+  const phIndexes = await ph.indexes();
+  console.log('\n── pricehistories indexes ────────────────────────');
+  for (const i of phIndexes) {
+    console.log(`  ${String(i.name).padEnd(34)} ${JSON.stringify(i.key)}`);
+  }
+
+  const REDUNDANT = 'normalizedName_1_day_1';
+  const hasRedundant = phIndexes.some((i) => i.name === REDUNDANT);
+
+  if (DROP_INDEX && hasRedundant) {
+    if (!CONFIRM) {
+      console.log(`\n  Dry run: would drop \`${REDUNDANT}\` (no documents affected).`);
+    } else {
+      await ph.dropIndex(REDUNDANT);
+      console.log(`\n  Dropped \`${REDUNDANT}\` — no documents touched.`);
+      const after = await db.command({ dbStats: 1 });
+      console.log(`  indexes now ${mb(after.indexSize || 0)} (was ${mb(st.indexSize || 0)})`);
+    }
+  }
 
   if (!PRUNE) {
     console.log('\nReport only. Nothing changed.');
