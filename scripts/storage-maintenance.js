@@ -106,7 +106,16 @@ const QUOTA_MB = 512;
   }
 
   const ph = db.collection('pricehistories');
-  const cutoffDay = new Date(Date.now() - KEEP_DAYS * 86_400_000).toISOString().slice(0, 10);
+
+  /* The retention window is measured from the NEWEST row, not from today.
+     Writes have been blocked for weeks, so the freshest history is already
+     24 days old — counting back from now would make "keep 14 days" mean
+     "delete everything", silently, on a collection that took months to
+     build. Anchored to the data, it keeps the N most recent days that exist. */
+  const newestPH = await ph.find({}).sort({ day: -1 }).limit(1).project({ day: 1 }).next();
+  const anchorDate = newestPH?.day ? new Date(`${newestPH.day}T00:00:00Z`) : new Date();
+  const cutoffDay = new Date(anchorDate.getTime() - KEEP_DAYS * 86400000).toISOString().slice(0, 10);
+  console.log(`\n  retention anchored to newest row: ${newestPH?.day || '(none)'}`);
   const [phTotal, phOld] = await Promise.all([
     ph.estimatedDocumentCount(),
     ph.countDocuments({ day: { $lt: cutoffDay } }),
@@ -161,9 +170,27 @@ const QUOTA_MB = 512;
     return;
   }
 
+  if (phOld >= phTotal) {
+    console.error(`\n  REFUSING: that window removes every row.`);
+    console.error('  Widen --keep-days, or drop the collection deliberately if that is the intent.');
+    await mongoose.disconnect();
+    process.exitCode = 2;
+    return;
+  }
+
   if (phOld > 0) {
-    const r = await ph.deleteMany({ day: { $lt: cutoffDay } });
-    console.log(`\n  deleted ${r.deletedCount} rows`);
+    /* Batched: one deleteMany over ~1.2M documents on an M0 can outlive the
+       connection, and a half-finished bulk delete is hard to reason about. */
+    let removed = 0;
+    for (;;) {
+      const batch = await ph.find({ day: { $lt: cutoffDay } })
+        .limit(50000).project({ _id: 1 }).toArray();
+      if (!batch.length) break;
+      const r = await ph.deleteMany({ _id: { $in: batch.map((d) => d._id) } });
+      removed += r.deletedCount;
+      console.log(`  deleted ${removed}/${phOld}`);
+    }
+    console.log(`\n  removed ${removed} rows`);
   }
 
   /* The durable fix. Without this the collection refills and blocks writes
