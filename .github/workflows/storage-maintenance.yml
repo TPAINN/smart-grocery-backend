@@ -1,0 +1,61 @@
+name: 🧹 Storage maintenance
+
+# Runs where MONGO_URI already exists as a secret, so the connection string
+# never has to be copied onto anyone's machine.
+#
+# Default is report-only. Deleting requires ticking `confirm` explicitly.
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'report = look only · prune = delete old price history'
+        required: true
+        default: 'report'
+        type: choice
+        options: [report, prune]
+      keep_days:
+        description: 'Days of price history to keep (prune only)'
+        required: false
+        default: '60'
+      confirm:
+        description: 'Actually delete. Unticked = dry run.'
+        required: false
+        default: false
+        type: boolean
+
+  # Weekly, report-only, so the cluster filling up is noticed before it blocks
+  # writes again rather than three weeks after.
+  schedule:
+    - cron: '0 4 * * 1'
+
+jobs:
+  maintenance:
+    name: Inspect and prune storage
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --omit=dev
+
+      - name: Run maintenance
+        env:
+          MONGO_URI: ${{ secrets.MONGO_URI }}
+        run: |
+          ARGS=""
+          if [ "${{ inputs.mode }}" = "prune" ]; then
+            ARGS="--prune --keep-days=${{ inputs.keep_days || 60 }}"
+            if [ "${{ inputs.confirm }}" = "true" ]; then
+              ARGS="$ARGS --confirm"
+            fi
+          fi
+          echo "Running: storage-maintenance.js $ARGS"
+          node scripts/storage-maintenance.js $ARGS
