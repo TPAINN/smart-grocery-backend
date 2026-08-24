@@ -14,7 +14,17 @@ const priceHistorySchema = new mongoose.Schema({
 
 // One snapshot per product/store/day
 priceHistorySchema.index({ normalizedName: 1, supermarket: 1, day: 1 }, { unique: true });
-// Fast series lookups
-priceHistorySchema.index({ normalizedName: 1, day: 1 });
+/* The {normalizedName, day} series-lookup index was removed on 2026-08-24.
+   It cost ~15 MB on a cluster that was refusing every write at 512/512 MB, and
+   nothing queries it: the frontend no longer renders price history at all.
+   Note it MUST stay out of the schema, not merely be dropped in the database —
+   Mongoose recreates schema-declared indexes on connect, so a dropped index
+   reappears the next time the scraper or the API starts up. Restore this line
+   if a price-series feature comes back. */
+
+/* Retention. Without this the collection grows without limit — it reached
+   1.78M rows and filled the cluster, which blocked writes for 24 days while
+   the scraper kept reporting success. */
+priceHistorySchema.index({ date: 1 }, { expireAfterSeconds: 60 * 60 * 24 * 14 });
 
 module.exports = mongoose.model('PriceHistory', priceHistorySchema);
