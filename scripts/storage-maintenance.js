@@ -38,6 +38,7 @@ const val = (f) => argv.find((a) => a.startsWith(`--${f}=`))?.split('=')[1];
 
 const PRUNE = has('prune');
 const DROP_INDEX = has('drop-unused-indexes');
+const REINDEX = has('reindex');
 const CONFIRM = has('confirm');
 const KEEP_DAYS = Number(val('keep-days') ?? 60);
 
@@ -150,6 +151,29 @@ const QUOTA_MB = 512;
       console.log(`\n  Dropped \`${REDUNDANT}\` — no documents touched.`);
       const after = await db.command({ dbStats: 1 });
       console.log(`  indexes now ${mb(after.indexSize || 0)} (was ${mb(st.indexSize || 0)})`);
+    }
+  }
+
+  /* Rebuilding an index reclaims space a mass delete left stranded.
+     WiredTiger does not return freed index pages to the OS, and M0 does not
+     permit compact, so after deleting 1.2M rows `pricehistories` still held
+     ~138 MB of index for 31k documents. Dropping and recreating writes a
+     fresh, compact B-tree sized to what is actually there.
+
+     The unique index is briefly absent while this runs, so it must not
+     overlap the scraper — during that window nothing enforces one snapshot
+     per product/chain/day. */
+  if (REINDEX) {
+    const UNIQ = 'normalizedName_1_supermarket_1_day_1';
+    const spec = { normalizedName: 1, supermarket: 1, day: 1 };
+    if (!CONFIRM) {
+      console.log(`\n  Dry run: would rebuild \`${UNIQ}\` to reclaim stranded index space.`);
+    } else {
+      const before = (await db.command({ dbStats: 1 })).indexSize || 0;
+      await ph.dropIndex(UNIQ).catch(() => console.log('  (index already absent)'));
+      await ph.createIndex(spec, { unique: true, name: UNIQ });
+      const after = (await db.command({ dbStats: 1 })).indexSize || 0;
+      console.log(`\n  Rebuilt \`${UNIQ}\` — indexes ${mb(before)} -> ${mb(after)}`);
     }
   }
 
