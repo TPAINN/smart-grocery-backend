@@ -13,7 +13,7 @@ on:
         required: true
         default: 'report'
         type: choice
-        options: [report, drop-index, prune]
+        options: [report, drop-index, reindex, prune]
       keep_days:
         description: 'Days of price history to keep (prune only)'
         required: false
@@ -52,6 +52,10 @@ jobs:
         run: |
           ARGS=""
           case "${{ inputs.mode }}" in
+            reindex)
+              # Reclaims index space a mass delete stranded. No documents touched.
+              ARGS="--reindex"
+              ;;
             drop-index)
               # Frees index bytes without deleting a single document.
               ARGS="--drop-unused-indexes"
