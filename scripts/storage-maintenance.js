@@ -42,6 +42,8 @@ const REINDEX = has('reindex');
 const CONFIRM = has('confirm');
 const KEEP_DAYS = Number(val('keep-days') ?? 60);
 const SET_TTL_DAYS = val('set-ttl-days') ? Number(val('set-ttl-days')) : null;
+const PRUNE_DELISTED = has('prune-delisted');
+const STALE_DAYS = Number(val('stale-days') ?? 30);
 
 const uri = process.env.MONGO_URI;
 if (!uri) {
@@ -204,6 +206,67 @@ const QUOTA_MB = 512;
       console.log(`  TTL moved ${(ttl.expireAfterSeconds / 86400).toFixed(0)}d -> ${SET_TTL_DAYS}d on \`${ttl.name}\`.`);
       console.log('  MongoDB removes newly-expired rows on its next background pass (up to ~60s).');
     }
+  }
+
+  /* Delisted products.
+   *
+   * The scraper upserts what a chain currently sells; it never removes what a
+   * chain stopped selling. Sampled on 2026-08-26, 28% of the catalogue had not
+   * been touched by that morning's run and the oldest rows were 147 days old —
+   * items that left the shelves in spring and are still searchable.
+   *
+   * Two guards, because deleting by absence is only safe if absence is real:
+   *   · a chain is only pruned if it scraped within the last 48 hours, so a
+   *     chain that is currently broken (as ΑΒ was for 27 days) never has its
+   *     catalogue deleted for failing to report;
+   *   · a chain that would lose more than 40% of its rows is skipped and
+   *     reported, since that means the scrape was partial rather than the
+   *     products delisted.
+   */
+  if (PRUNE_DELISTED) {
+    if (!Number.isFinite(STALE_DAYS) || STALE_DAYS < 7) {
+      console.error(`--stale-days must be at least 7, got: ${val('stale-days')}`);
+      process.exitCode = 2;
+      await mongoose.disconnect();
+      return;
+    }
+    const products = db.collection('products');
+    const cutoff = new Date(Date.now() - STALE_DAYS * 86_400_000);
+    const recent = new Date(Date.now() - 48 * 3_600_000);
+
+    const chains = await products.aggregate([
+      { $group: { _id: '$supermarket', total: { $sum: 1 }, newest: { $max: '$dateScraped' } } },
+      { $sort: { total: -1 } },
+    ]).toArray();
+
+    console.log(`\n── Delisted sweep (older than ${STALE_DAYS} days) ────────`);
+    let removedTotal = 0;
+    for (const c of chains) {
+      const chain = c._id;
+      const stale = await products.countDocuments({ supermarket: chain, dateScraped: { $lt: cutoff } });
+      const label = String(chain ?? '(none)').padEnd(22);
+
+      if (!c.newest || new Date(c.newest) < recent) {
+        console.log(`  ${label} SKIP — last scraped ${c.newest ? new Date(c.newest).toISOString().slice(0, 10) : 'never'}, not proven healthy`);
+        continue;
+      }
+      if (stale === 0) { console.log(`  ${label} nothing stale`); continue; }
+      const share = stale / c.total;
+      if (share > 0.4) {
+        console.log(`  ${label} SKIP — ${stale}/${c.total} (${(share * 100).toFixed(0)}%) looks like a partial scrape, not delisting`);
+        continue;
+      }
+      if (!CONFIRM) {
+        console.log(`  ${label} would remove ${stale} of ${c.total} (${(share * 100).toFixed(0)}%)`);
+        continue;
+      }
+      const r = await products.deleteMany({ supermarket: chain, dateScraped: { $lt: cutoff } });
+      removedTotal += r.deletedCount;
+      console.log(`  ${label} removed ${r.deletedCount} of ${c.total}`);
+    }
+    console.log(CONFIRM
+      ? `\n  removed ${removedTotal} delisted rows`
+      : '\n  Dry run. Add --confirm to apply.');
   }
 
   if (!PRUNE) {

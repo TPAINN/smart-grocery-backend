@@ -13,7 +13,7 @@ on:
         required: true
         default: 'report'
         type: choice
-        options: [report, drop-index, reindex, prune, set-ttl]
+        options: [report, drop-index, reindex, prune, set-ttl, prune-delisted]
       keep_days:
         description: 'Days of price history to keep (prune / set-ttl)'
         required: false
@@ -62,6 +62,13 @@ jobs:
               ;;
             prune)
               ARGS="--prune --keep-days=${{ inputs.keep_days || 60 }}"
+              ;;
+            prune-delisted)
+              # Removes products a chain has stopped selling. Only touches
+              # chains that scraped in the last 48h, and skips any chain that
+              # would lose more than 40% (that is a partial scrape, not
+              # delisting). keep_days doubles as the staleness threshold.
+              ARGS="--prune-delisted --stale-days=${{ inputs.keep_days || 30 }}"
               ;;
             set-ttl)
               # Moves the retention window in place via collMod. Editing
