@@ -24,7 +24,20 @@ priceHistorySchema.index({ normalizedName: 1, supermarket: 1, day: 1 }, { unique
 
 /* Retention. Without this the collection grows without limit — it reached
    1.78M rows and filled the cluster, which blocked writes for 24 days while
-   the scraper kept reporting success. */
-priceHistorySchema.index({ date: 1 }, { expireAfterSeconds: 60 * 60 * 24 * 14 });
+   the scraper kept reporting success.
+
+   Seven days, not fourteen. Measured on 2026-08-26, one day of history is
+   68,269 rows costing 30.1 MB — of which 24.5 MB is index, because the unique
+   {normalizedName, supermarket, day} key over long Greek product names costs
+   376 bytes a row against 86 bytes of actual data. Projected to a full window:
+   14 days reaches ~421 MB of history and ~467 MB of cluster, 91% of the 512 MB
+   quota, which is the same wall this collection hit before. Seven days lands at
+   ~211 MB of history and ~257 MB of cluster — half the quota, with room for the
+   catalogue to grow.
+
+   Changing this number alone does NOT change the live index: MongoDB ignores a
+   differing expireAfterSeconds on an index that already exists. Run
+   `storage-maintenance.js --set-ttl-days=7 --confirm` to apply it. */
+priceHistorySchema.index({ date: 1 }, { expireAfterSeconds: 60 * 60 * 24 * 7 });
 
 module.exports = mongoose.model('PriceHistory', priceHistorySchema);
