@@ -13,9 +13,9 @@ on:
         required: true
         default: 'report'
         type: choice
-        options: [report, drop-index, reindex, prune]
+        options: [report, drop-index, reindex, prune, set-ttl]
       keep_days:
-        description: 'Days of price history to keep (prune only)'
+        description: 'Days of price history to keep (prune / set-ttl)'
         required: false
         default: '60'
       confirm:
@@ -62,6 +62,12 @@ jobs:
               ;;
             prune)
               ARGS="--prune --keep-days=${{ inputs.keep_days || 60 }}"
+              ;;
+            set-ttl)
+              # Moves the retention window in place via collMod. Editing
+              # expireAfterSeconds in the Mongoose schema alone does nothing —
+              # MongoDB keeps the existing index when the option differs.
+              ARGS="--set-ttl-days=${{ inputs.keep_days || 7 }}"
               ;;
           esac
           if [ -n "$ARGS" ] && [ "${{ inputs.confirm }}" = "true" ]; then

@@ -41,6 +41,7 @@ const DROP_INDEX = has('drop-unused-indexes');
 const REINDEX = has('reindex');
 const CONFIRM = has('confirm');
 const KEEP_DAYS = Number(val('keep-days') ?? 60);
+const SET_TTL_DAYS = val('set-ttl-days') ? Number(val('set-ttl-days')) : null;
 
 const uri = process.env.MONGO_URI;
 if (!uri) {
@@ -174,6 +175,34 @@ const QUOTA_MB = 512;
       await ph.createIndex(spec, { unique: true, name: UNIQ });
       const after = (await db.command({ dbStats: 1 })).indexSize || 0;
       console.log(`\n  Rebuilt \`${UNIQ}\` — indexes ${mb(before)} -> ${mb(after)}`);
+    }
+  }
+
+  /* Changing expireAfterSeconds in the Mongoose schema is not enough: MongoDB
+     silently keeps the existing index when the option differs, so the old window
+     stays in force forever. collMod moves it in place without dropping the index
+     or touching a document. */
+  if (SET_TTL_DAYS != null) {
+    if (!Number.isFinite(SET_TTL_DAYS) || SET_TTL_DAYS < 1) {
+      console.error(`--set-ttl-days must be a positive number, got: ${val('set-ttl-days')}`);
+      process.exitCode = 2;
+      await mongoose.disconnect();
+      return;
+    }
+    const seconds = SET_TTL_DAYS * 86_400;
+    const ttl = (await ph.indexes()).find((i) => i.expireAfterSeconds != null);
+    if (!ttl) {
+      console.error('  No TTL index on `pricehistories` — run a prune first, which creates it.');
+      process.exitCode = 2;
+    } else if (ttl.expireAfterSeconds === seconds) {
+      console.log(`  TTL already ${SET_TTL_DAYS} days. Nothing to do.`);
+    } else if (!CONFIRM) {
+      console.log(`  Dry run: would move \`${ttl.name}\` from ${(ttl.expireAfterSeconds / 86400).toFixed(0)}d to ${SET_TTL_DAYS}d.`);
+      console.log('  Add --confirm to apply. Rows past the new window expire over the following minutes.');
+    } else {
+      await db.command({ collMod: 'pricehistories', index: { name: ttl.name, expireAfterSeconds: seconds } });
+      console.log(`  TTL moved ${(ttl.expireAfterSeconds / 86400).toFixed(0)}d -> ${SET_TTL_DAYS}d on \`${ttl.name}\`.`);
+      console.log('  MongoDB removes newly-expired rows on its next background pass (up to ~60s).');
     }
   }
 
