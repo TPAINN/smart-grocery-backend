@@ -402,12 +402,38 @@ async function scrapeSklavenitis(page, storeName, config, allFound) {
         await page.keyboard.press('PageDown'); await sleep(400);
     }
 }
+/*
+ * ΑΒ Βασιλόπουλος talks to its own GraphQL endpoint using Apollo persisted
+ * queries: the client sends a sha256 hash instead of the query text, and the
+ * server only honours hashes belonging to the frontend build it currently
+ * serves. Every ΑΒ deploy therefore invalidates ours.
+ *
+ * Seeded with the hash observed on 2026-08-26 so a run works even if discovery
+ * fails, and refreshed from the live page the moment the server rejects it.
+ */
+let abPersistedHash = 'd8bff3916275ffeb6f51604d36d7a3aa2f9cd92847487a7f2e3bdf6bb2115cdd';
+let abHashRefreshed = false;
+
+async function refreshAbHash(page) {
+    if (abHashRefreshed) return false;   // one rotation per process is enough
+    abHashRefreshed = true;
+    try {
+        const found = await page.evaluate(() => {
+            const entry = performance.getEntriesByType('resource')
+                .map((e) => decodeURIComponent(e.name))
+                .find((n) => n.includes('operationName=GetCategoryProductSearch') && n.includes('sha256Hash'));
+            return entry ? (entry.match(/"sha256Hash":"([a-f0-9]{64})"/) || [])[1] : null;
+        });
+        if (found && found !== abPersistedHash) { abPersistedHash = found; return true; }
+    } catch (e) { /* discovery is best-effort; the caller falls back to Puppeteer */ }
+    return false;
+}
+
 async function scrapeAB(page, storeName, config, allFound, categoryUrl) {
     // ΑΒ uses a GraphQL API — no browser scraping needed, call directly
     // API: GET https://www.ab.gr/api/v1/?operationName=GetCategoryProductSearch&variables=...
     // Requires Content-Type: application/json header to bypass CSRF check
     const axios = require('axios');
-    const AB_GQL_HASH = '189e7cb5a6ba93e55dc63e4eef0ad063ca3e8aedb0bdf2a58124e02d5d5d69a2';
     const AB_IMG_BASE = 'https://static.ab.gr';
 
     // Extract category code from URL: /c/001 → "001"
@@ -419,18 +445,43 @@ async function scrapeAB(page, storeName, config, allFound, categoryUrl) {
 
     const fetchPage = async (pageNum) => {
         const vars = encodeURIComponent(JSON.stringify({ lang: 'gr', searchQuery: '', category: categoryCode, pageNumber: pageNum, pageSize: 20, filterFlag: true, fields: 'PRODUCT_TILE', plainChildCategories: true }));
-        const ext = encodeURIComponent(JSON.stringify({ persistedQuery: { version: 1, sha256Hash: AB_GQL_HASH } }));
+        const ext = encodeURIComponent(JSON.stringify({ persistedQuery: { version: 1, sha256Hash: abPersistedHash } }));
         const url = `https://www.ab.gr/api/v1/?operationName=GetCategoryProductSearch&variables=${vars}&extensions=${ext}`;
         const { data } = await axios.get(url, {
             headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36', 'Referer': categoryUrl },
             timeout: 15000,
         });
+        /* A rejected persisted query comes back as HTTP 200 with an `errors`
+           array, so axios does not throw and the old code read the empty body as
+           "this category has no products". That is how ΑΒ went 27 days without a
+           single save while every run reported success. Turn it into a throw so
+           the caller either re-discovers the hash or falls through to Puppeteer. */
+        if (data && data.errors && data.errors.length) {
+            const err = new Error(data.errors[0].message || 'AB GraphQL error');
+            err.abGraphQLCode = data.errors[0].extensions?.code || data.errors[0].reasonCode || '';
+            throw err;
+        }
         return data;
     };
 
     try {
-        // First page to get total count
-        const first = await fetchPage(0);
+        let first;
+        try {
+            first = await fetchPage(0);
+        } catch (e) {
+            /* ΑΒ ships a new frontend build every few weeks and each one gets a
+               new persisted-query hash, which retires the old one server-side.
+               The live page in front of us has already issued the very request
+               we are imitating, so its hash is sitting in the resource timings —
+               read it, then try once more. This is what stops a hash rotation
+               from silently costing another month of data. */
+            if (e.abGraphQLCode === 'PERSISTED_QUERY_NOT_FOUND' && await refreshAbHash(page)) {
+                console.log(`  AB: persisted-query hash rotated, re-discovered ${abPersistedHash.slice(0, 12)}…`);
+                first = await fetchPage(0);
+            } else {
+                throw e;
+            }
+        }
         const pagination = first?.data?.categoryProductSearch?.pagination || {};
         const totalPages = pagination.totalPages || 1;
         const totalResults = pagination.totalResults || 0;
@@ -760,6 +811,8 @@ async function scrapeTask({ page, data: { url, storeName } }) {
     const finalProducts = Array.from(allFound.values());
     console.log(`\n📦 [${storeName}] Βρέθηκαν ${finalProducts.length} προϊόντα → αποθήκευση...`);
 
+    savedPerStore.set(storeName, (savedPerStore.get(storeName) || 0) + finalProducts.length);
+
     if (finalProducts.length > 0) {
         const now = new Date();
         const bulkOps = finalProducts.map(product => ({
@@ -806,7 +859,15 @@ async function scrapeTask({ page, data: { url, storeName } }) {
 }
 
 // --- ORCHESTRATOR ---
+/* Per-run tally of what each chain actually saved. A chain that saves nothing
+   is not a quiet edge case — it means the site changed under us and the app is
+   now serving that chain's prices from however long ago it last worked. The
+   runner reads this and fails the job, so it shows up as a red run instead of
+   as a green one hiding a month-old shelf. */
+const savedPerStore = new Map();
+
 async function runWebScraper(targetStore = null) {
+    savedPerStore.clear();
     console.log(`\n🥷 ENTERPRISE STEALTH CLUSTER INITIATED.`);
     globalIsScraping = true; // Ξεκίνησε!
     completedJobs = 0;
@@ -928,4 +989,4 @@ async function runWebScraper(targetStore = null) {
 const getScrapingStatus = () => { return globalIsScraping; };
 
 const startCronJobs = () => { cron.schedule('20 8 * * *', runWebScraper); };
-module.exports = { startCronJobs, runWebScraper, getScrapingStatus };
+module.exports = { startCronJobs, runWebScraper, getScrapingStatus, savedPerStore };

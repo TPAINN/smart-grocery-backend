@@ -24,7 +24,7 @@ const dns = require('node:dns/promises');
 dns.setServers(['1.1.1.1', '1.0.0.1', '8.8.8.8']);
 
 const mongoose = require('mongoose');
-const { runWebScraper } = require('./services/scraper');
+const { runWebScraper, savedPerStore } = require('./services/scraper');
 
 // ─── Set scraper profile (respect env var so GitHub Actions can pass 'github') ──
 // Workflow env: SCRAPER_PROFILE=github  → no --single-process (7GB RAM, full Chrome)
@@ -110,6 +110,28 @@ log.mem();
     try {
         await runWebScraper(null); // null = scrape all stores
         const elapsed = ((Date.now() - JOB_START) / 60_000).toFixed(1);
+
+        /* What each chain actually saved. Printed every run, because the useful
+           question after a scrape is never "did it finish" — it is "did anyone
+           come back empty". */
+        const tally = [...savedPerStore.entries()].sort((a, b) => b[1] - a[1]);
+        log.info('── Saved per chain ──────────────────────────');
+        for (const [store, n] of tally) {
+            log.info(`  ${store.padEnd(22)} ${String(n).padStart(6)}`);
+        }
+
+        /* ΑΒ Βασιλόπουλος spent 27 days returning zero products while this job
+           reported success every single morning, because nothing ever checked.
+           A chain that saves nothing means its site changed and the app is now
+           serving that chain's prices from whenever it last worked — that is a
+           failed run, and it should look like one. */
+        const empty = tally.filter(([, n]) => n === 0).map(([store]) => store);
+        if (empty.length) {
+            log.err(`Chains that saved nothing: ${empty.join(', ')}`);
+            log.err('Their prices in the app are now stale. Failing the run so this is visible.');
+            await shutdown(1);
+        }
+
         log.ok(`All stores scraped successfully in ${elapsed} min.`);
     } catch (err) {
         log.err(`Scraper error: ${err.message}`);
