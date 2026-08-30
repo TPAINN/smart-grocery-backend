@@ -540,24 +540,34 @@ async function scrapeGalaxias(page, storeName, config, allFound) {
     await sleep(1500);
 
     let fails = 0;
-    while (fails < 12) {
+    while (fails < 15) {
         const products = await page.evaluate(extractDataInBrowser, storeName, config);
         let addedNew = false;
         products.forEach(p => { if (!allFound.has(p.normalizedName)) { allFound.set(p.normalizedName, p); addedNew = true; }});
         if (addedNew) { fails = 0; } else { fails++; }
 
-        // Try clicking a "load more" button if present
-        const clickedMore = await page.evaluate(() => {
-            const btn = document.querySelector('button[class*="load-more"], a[class*="load-more"], button[class*="more"], [data-testid*="load-more"]');
-            if (btn && btn.offsetParent !== null) { btn.click(); return true; }
-            return false;
-        });
-        if (clickedMore) { await sleep(2000); continue; }
+        /* Galaxias renders inside an Angular Material sidenav, so the document
+           itself never scrolls — document.scrollingElement stays one viewport
+           tall no matter what. Keyboard PageDown and window.scrollBy therefore
+           moved nothing, the infinite scroll never fired, and only the first
+           page of each category was ever collected. Measured 2026-08-30:
+           /eshop/86 went 32 -> 126 products and /eshop/89 went 32 -> 256 the
+           moment the real scroll container was driven instead.
 
-        // Aggressive scroll to trigger virtual-scroll / lazy rendering
-        for (let i = 0; i < 25; i++) { await page.keyboard.press('PageDown'); await sleep(25); }
-        await page.keyboard.press('PageUp'); await sleep(80); await page.keyboard.press('PageDown');
-        await sleep(1200);
+           The old code also tried a load-more button first; that selector
+           matches zero elements on this site (verified), so the branch was
+           dead and is gone. */
+        const scrolled = await page.evaluate(() => {
+            const scroller = document.querySelector('mat-sidenav-content')
+                || [...document.querySelectorAll('*')].find((e) => e.scrollHeight > e.clientHeight + 80 && e.clientHeight > 300)
+                || document.scrollingElement;
+            const before = scroller.scrollTop;
+            scroller.scrollTop = scroller.scrollHeight;
+            return scroller.scrollTop !== before;
+        });
+        /* Longer settle when the container actually moved: that is when a new
+           batch is being fetched and rendered. */
+        await sleep(scrolled ? 1400 : 700);
     }
 }
 async function scrapeMyMarket(page, storeName, config, allFound) {
