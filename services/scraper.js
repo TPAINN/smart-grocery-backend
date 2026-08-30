@@ -47,32 +47,41 @@ const MASOUTIS_URLS =[
 const KRITIKOS_URLS =[
     "https://kritikos-sm.gr/offers/", "https://kritikos-sm.gr/categories/manabikh/", "https://kritikos-sm.gr/categories/fresko-kreas/", "https://kritikos-sm.gr/categories/allantika/", "https://kritikos-sm.gr/categories/turokomika/", "https://kritikos-sm.gr/categories/galaktokomika/", "https://kritikos-sm.gr/categories/eidh-psugeiou/", "https://kritikos-sm.gr/categories/katapsuxh/", "https://kritikos-sm.gr/categories/pantopwleio/", "https://kritikos-sm.gr/categories/kaba/", "https://kritikos-sm.gr/categories/proswpikh-frontida/", "https://kritikos-sm.gr/categories/brefika/", "https://kritikos-sm.gr/categories/kathariothta/", "https://kritikos-sm.gr/categories/oikiakh-xrhsh/", "https://kritikos-sm.gr/categories/pet-shop/", "https://kritikos-sm.gr/categories/biologikaleitourgika/"
 ];
+
+/*
+ * Category ids verified against the live tree on 2026-08-30 via
+ *   {categoriesTwoLevelList(category_id: 2) {id name products_count sub_categories{...}}}
+ * on https://galaxias.shop/api/graphql — the same endpoint the site itself uses.
+ *
+ * The list is complete: all 19 live subcategories appear below, covering 7,573
+ * of the 7,698 products the root category reports. The labels here had drifted
+ * badly — every single one named a different category than its id actually
+ * serves — which reads like whole sections are missing when they are not.
+ * Regenerate this block from that query rather than editing names by hand.
+ */
 const GALAXIAS_URLS =[
-    // Promotional / all-products with offer filters
-    "https://galaxias.shop/eshop/2?promos=isExtraBonus&promos=isBravoBonus&promos=isKalathiNoikokiriou&promos=isSumferei&promos=isTileoptiko&promos=isGoldPrices",
-    // Full category pages (numeric IDs from Galaxias CMS)
-    "https://galaxias.shop/eshop/59",   // Φρούτα & Λαχανικά
-    "https://galaxias.shop/eshop/69",   // Κρέας
-    "https://galaxias.shop/eshop/194",  // Ψάρια & Θαλασσινά
-    "https://galaxias.shop/eshop/95",   // Γαλακτοκομικά
-    "https://galaxias.shop/eshop/66",   // Τυριά
-    "https://galaxias.shop/eshop/104",  // Αλλαντικά
-    "https://galaxias.shop/eshop/68",   // Ψωμί & Αρτοποιεία
-    "https://galaxias.shop/eshop/103",  // Κατεψυγμένα
-    "https://galaxias.shop/eshop/1080515", // Έτοιμα γεύματα
-    "https://galaxias.shop/eshop/89",   // Ζυμαρικά & Ρύζι
-    "https://galaxias.shop/eshop/88",   // Κονσέρβες
-    "https://galaxias.shop/eshop/788",  // Σάλτσες & Μπαχαρικά
-    "https://galaxias.shop/eshop/342",  // Λάδια & Λιπαρά
-    "https://galaxias.shop/eshop/93",   // Αναψυκτικά & Νερά
-    "https://galaxias.shop/eshop/75",   // Καφές & Ροφήματα
-    "https://galaxias.shop/eshop/64",   // Πρωινό & Δημητριακά
-    "https://galaxias.shop/eshop/72",   // Σνακ & Ξηροί Καρποί
-    "https://galaxias.shop/eshop/245",  // Κάβα
-    "https://galaxias.shop/eshop/86",   // Προσωπική Φροντίδα
-    "https://galaxias.shop/eshop/76",   // Καθαριότητα
-    "https://galaxias.shop/eshop/77",   // Βρεφικά
-    "https://galaxias.shop/eshop/78",   // Κατοικίδια
+    "https://galaxias.shop/eshop/59",            // Τρόφιμα (1183 products)
+    "https://galaxias.shop/eshop/69",            // Είδη Ψυγείου (578 products)
+    "https://galaxias.shop/eshop/194",           // Τυριά, Αλλαντικά (380 products)
+    "https://galaxias.shop/eshop/95",            // Κατεψυγμένα (318 products)
+    "https://galaxias.shop/eshop/66",            // Έτοιμα Γεύματα (83 products)
+    "https://galaxias.shop/eshop/104",           // Σνακς (780 products)
+    "https://galaxias.shop/eshop/68",            // Είδη Πρωϊνού (278 products)
+    "https://galaxias.shop/eshop/103",           // Αρτοποιείο (278 products)
+    "https://galaxias.shop/eshop/1080515",       // Ροφήματα (238 products)
+    "https://galaxias.shop/eshop/89",            // Αναψυκτικά, Χυμοί (388 products)
+    "https://galaxias.shop/eshop/88",            // Κάβα (301 products)
+    "https://galaxias.shop/eshop/788",           // Βρεφικές Τροφές (46 products)
+    "https://galaxias.shop/eshop/342",           // Μαναβική (204 products)
+    "https://galaxias.shop/eshop/93",            // Ψαρικά, Κρέας (77 products)
+    "https://galaxias.shop/eshop/75",            // Προσωπική Υγιεινή (1266 products)
+    "https://galaxias.shop/eshop/64",            // Απορρυπαντικά (632 products)
+    "https://galaxias.shop/eshop/72",            // Οικιακής Χρήσης (365 products)
+    "https://galaxias.shop/eshop/245",           // Είδη Πάρτι (20 products)
+    "https://galaxias.shop/eshop/86",            // Κατοικίδια (158 products)
+    "https://galaxias.shop/eshop/76",            // stale id — no longer a top-level category
+    "https://galaxias.shop/eshop/77",            // stale id — no longer a top-level category
+    "https://galaxias.shop/eshop/78",            // stale id — no longer a top-level category
 ];
 const MARKET_IN_URLS =[
     "https://www.market-in.gr/el-gr/manabikh",
