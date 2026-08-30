@@ -711,7 +711,7 @@ async function scrapeLidl(page, storeName, config, allFound) {
                     (d.ribbons || []).forEach(r => {
                         const txt = (r.text || r.label || JSON.stringify(r)).toLowerCase();
                         if (txt.includes('1+1') || txt.includes('+1')) { is1plus1 = true; isSale = true; }
-                        const m = txt.match(/(-?d+)s*%/);
+                        const m = txt.match(/(-?\d+)\s*%/);
                         if (m) { discountPercent = m[0]; isSale = true; }
                     });
 
@@ -748,7 +748,7 @@ async function scrapeLidl(page, storeName, config, allFound) {
             const counterEl = document.querySelector('.s-load-more__text');
             let loaded = 0, total = 0;
             if (counterEl) {
-                const m = counterEl.textContent.match(/(d+)s*[/|]s*(d+)/);
+                const m = counterEl.textContent.match(/(\d+)\s*[/|]\s*(\d+)/);
                 if (m) { loaded = parseInt(m[1]); total = parseInt(m[2]); }
             }
             const btn = document.querySelector(loadMoreSel);
