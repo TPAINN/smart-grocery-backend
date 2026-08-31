@@ -681,6 +681,35 @@ async function scrapeLidl(page, storeName, config, allFound) {
     // Image: data.imageList[0] || data.image || data.cutoutimageV2 || data.image_V1
     try { await page.waitForSelector('.odsc-tile[data-grid-data]', { timeout: 25000 }); } catch(e) {}
 
+    /* Lidl virtualises its grid: as load-more renders the next batch, tiles that
+       scrolled out are removed from the DOM. Extracting once per iteration
+       therefore only ever sees the window that happens to be mounted, which is
+       why a category whose counter reached 305/305 yielded 100 products and
+       ended with zero tiles in the document.
+
+       A MutationObserver harvests each tile's data-grid-data the moment it is
+       inserted, so nothing is lost when it is later evicted. Seeded with what is
+       already mounted, because the observer only sees additions from now on. */
+    await page.evaluate(() => {
+        if (window.__lidlHarvest) return;
+        window.__lidlHarvest = new Map();
+        const take = (el) => {
+            if (!el.matches || !el.matches('.odsc-tile[data-grid-data]')) return;
+            const raw = el.getAttribute('data-grid-data');
+            if (raw && !window.__lidlHarvest.has(raw)) window.__lidlHarvest.set(raw, 1);
+        };
+        document.querySelectorAll('.odsc-tile[data-grid-data]').forEach(take);
+        new MutationObserver((records) => {
+            for (const r of records) {
+                for (const n of r.addedNodes) {
+                    if (n.nodeType !== 1) continue;
+                    take(n);
+                    n.querySelectorAll?.('.odsc-tile[data-grid-data]').forEach(take);
+                }
+            }
+        }).observe(document.body, { childList: true, subtree: true });
+    });
+
     const MAX_CLICKS = 60;
     let safetyLimit = 0;
 
@@ -689,9 +718,13 @@ async function scrapeLidl(page, storeName, config, allFound) {
             const result = [];
             const seen = new Set();
 
-            document.querySelectorAll('.odsc-tile[data-grid-data]').forEach(tile => {
+            const rawTiles = window.__lidlHarvest
+                ? [...window.__lidlHarvest.keys()]
+                : [...document.querySelectorAll('.odsc-tile[data-grid-data]')].map((t) => t.getAttribute('data-grid-data'));
+
+            rawTiles.forEach(raw => {
                 try {
-                    const d = JSON.parse(tile.getAttribute('data-grid-data'));
+                    const d = JSON.parse(raw);
 
                     const title = d.fullTitle || d.title || '';
                     if (!title) return;
