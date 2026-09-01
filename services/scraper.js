@@ -543,41 +543,68 @@ async function scrapeAB(page, storeName, config, allFound, categoryUrl) {
         }
     }
 }
-async function scrapeGalaxias(page, storeName, config, allFound) {
-    // Wait for product cards to appear before starting scroll loop
-    try { await page.waitForSelector(config.card, { timeout: 20000 }); } catch(e) {}
-    await sleep(1500);
+async function scrapeGalaxias(page, storeName, config, allFound, categoryUrl) {
+    /*
+     * Galaxias runs Magento 2 and exposes the same GraphQL its own storefront
+     * uses. Asking it directly replaces scrolling a virtualised Angular grid,
+     * which was never able to answer "did I get everything?" — two runs of the
+     * identical code returned 331 and 164 products for the same category,
+     * because what you collect is whatever happens to be mounted when you look.
+     *
+     * The API returns name, image, final price and regular price, plus a
+     * total_count to page against and to check the result is complete.
+     */
+    const categoryId = (String(categoryUrl || '').match(/\/eshop\/(\d+)/) || [])[1];
+    if (!categoryId) { console.log('  Γαλαξίας: no category id in ' + categoryUrl); return; }
 
-    let fails = 0;
-    while (fails < 15) {
-        const products = await page.evaluate(extractDataInBrowser, storeName, config);
-        let addedNew = false;
-        products.forEach(p => { if (!allFound.has(p.normalizedName)) { allFound.set(p.normalizedName, p); addedNew = true; }});
-        if (addedNew) { fails = 0; } else { fails++; }
+    const PAGE_SIZE = 100;
+    let currentPage = 1;
+    let total = null;
 
-        /* Galaxias renders inside an Angular Material sidenav, so the document
-           itself never scrolls — document.scrollingElement stays one viewport
-           tall no matter what. Keyboard PageDown and window.scrollBy therefore
-           moved nothing, the infinite scroll never fired, and only the first
-           page of each category was ever collected. Measured 2026-08-30:
-           /eshop/86 went 32 -> 126 products and /eshop/89 went 32 -> 256 the
-           moment the real scroll container was driven instead.
+    while (currentPage <= 60) {
+        const batch = await page.evaluate(async (catId, size, pageNum) => {
+            const query = `{products(filter:{category_id:{eq:"${catId}"}} pageSize:${size} currentPage:${pageNum})`
+                + `{total_count items{name sku image{url} price_range{minimum_price{final_price{value} regular_price{value}}}}}}`;
+            const res = await fetch('/api/graphql?query=' + encodeURIComponent(query), {
+                headers: { Accept: 'application/json' },
+            });
+            if (!res.ok) return { error: 'HTTP ' + res.status };
+            const json = await res.json();
+            if (json.errors) return { error: JSON.stringify(json.errors).slice(0, 200) };
+            return json.data && json.data.products;
+        }, categoryId, PAGE_SIZE, currentPage);
 
-           The old code also tried a load-more button first; that selector
-           matches zero elements on this site (verified), so the branch was
-           dead and is gone. */
-        const scrolled = await page.evaluate(() => {
-            const scroller = document.querySelector('mat-sidenav-content')
-                || [...document.querySelectorAll('*')].find((e) => e.scrollHeight > e.clientHeight + 80 && e.clientHeight > 300)
-                || document.scrollingElement;
-            const before = scroller.scrollTop;
-            scroller.scrollTop = scroller.scrollHeight;
-            return scroller.scrollTop !== before;
-        });
-        /* Longer settle when the container actually moved: that is when a new
-           batch is being fetched and rendered. */
-        await sleep(scrolled ? 1400 : 700);
+        if (!batch || batch.error) { console.log('  Γαλαξίας GraphQL: ' + (batch && batch.error)); break; }
+        if (total === null) total = batch.total_count;
+
+        const items = batch.items || [];
+        if (!items.length) break;
+
+        for (const it of items) {
+            const name = String(it.name || '').trim();
+            if (!name) continue;
+            const min = (it.price_range && it.price_range.minimum_price) || {};
+            const price = min.final_price && min.final_price.value;
+            if (!price || price <= 0) continue;
+            const regular = min.regular_price && min.regular_price.value;
+            const normalizedName = name.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+            if (allFound.has(normalizedName)) continue;
+            allFound.set(normalizedName, {
+                name,
+                normalizedName,
+                supermarket: storeName,
+                price,
+                oldPrice: regular && regular > price ? regular : null,
+                isOnSale: Boolean(regular && regular > price),
+                imageUrl: (it.image && it.image.url) || null,
+            });
+        }
+
+        if (currentPage * PAGE_SIZE >= total) break;
+        currentPage++;
     }
+
+    console.log('  Γαλαξίας cat ' + categoryId + ': ' + allFound.size + '/' + total + ' collected');
 }
 async function scrapeMyMarket(page, storeName, config, allFound) {
     // MyMarket is a Next.js/React app — wait for hydration before extracting
@@ -842,7 +869,7 @@ async function scrapeTask({ page, data: { url, storeName } }) {
             switch (storeName) {
                 case 'Σκλαβενίτης': await scrapeSklavenitis(page, storeName, config, allFound); break;
                 case 'ΑΒ Βασιλόπουλος': await scrapeAB(page, storeName, config, allFound, url); break;
-                case 'Γαλαξίας': await scrapeGalaxias(page, storeName, config, allFound); break;
+                case 'Γαλαξίας': await scrapeGalaxias(page, storeName, config, allFound, url); break;
                 case 'MyMarket': await scrapeMyMarket(page, storeName, config, allFound); break;
                 case 'Market In': await scrapeMarketIn(page, storeName, config, allFound); break;
                 case 'Μασούτης': await scrapeMasoutis(page, storeName, config, allFound); break;
