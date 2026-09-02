@@ -16,33 +16,47 @@ const SKLAVENITIS_URLS =[
 const MYMARKET_URLS =[
     "https://www.mymarket.gr/frouta-lachanika", "https://www.mymarket.gr/fresko-kreas-psari", "https://www.mymarket.gr/galaktokomika-eidi-psygeiou", "https://www.mymarket.gr/tyria-allantika-deli", "https://www.mymarket.gr/katepsygmena-trofima", "https://www.mymarket.gr/mpyres-anapsyktika-krasia-pota", "https://www.mymarket.gr/proino-rofimata-kafes", "https://www.mymarket.gr/artozacharoplasteio-snacks", "https://www.mymarket.gr/trofima", "https://www.mymarket.gr/frontida-gia-to-moro-sas", "https://www.mymarket.gr/prosopiki-frontida", "https://www.mymarket.gr/oikiaki-frontida-chartika", "https://www.mymarket.gr/kouzina-mikrosyskeves-spiti", "https://www.mymarket.gr/frontida-gia-to-katoikidio-sas", "https://www.mymarket.gr/epochiaka", "https://www.mymarket.gr/viral-trends", "https://www.mymarket.gr/vegan-epiloges-sta-my-market"
 ];
+/*
+ * Category URLs taken from the site's own sitemap (images/sitemapfirst.xml)
+ * on 2026-09-02, and every one of them verified to render products.
+ *
+ * The previous list had 24 entries of which 20 returned nothing: Masoutis
+ * categories only resolve when the `item` query parameter is present, and the
+ * grocery ones were listed without it. Every dead URL still answered HTTP 200
+ * with an empty page, so the scrape reported success while collecting nothing
+ * outside the four promotional pages that happened to carry the parameter.
+ * That is why Masoutis held rows from offers and almost nothing else.
+ */
 const MASOUTIS_URLS =[
-    // Promotional / featured pages
     "https://www.masoutis.gr/categories/index/prosfores?item=0",
-    "https://www.masoutis.gr/categories/index/nea-proionta?item=11",
-    "https://www.masoutis.gr/categories/index/meiwsh-timhs?item=9",
     "https://www.masoutis.gr/categories/index/proionta-masouths?item=2",
-    // Full grocery categories
-    "https://www.masoutis.gr/categories/index/freska-froyta-kai-lachanika",
-    "https://www.masoutis.gr/categories/index/fresko-kreas",
-    "https://www.masoutis.gr/categories/index/ichtyes-thalassina",
-    "https://www.masoutis.gr/categories/index/galaktokomika-auga",
-    "https://www.masoutis.gr/categories/index/tyria-allantika",
-    "https://www.masoutis.gr/categories/index/psomi-alopolia",
-    "https://www.masoutis.gr/categories/index/katepsygmena",
-    "https://www.masoutis.gr/categories/index/pantopoleio",
-    "https://www.masoutis.gr/categories/index/zymarika-rizi-osprya",
-    "https://www.masoutis.gr/categories/index/konserves",
-    "https://www.masoutis.gr/categories/index/anapsyktika-nera-chymoi",
-    "https://www.masoutis.gr/categories/index/kava",
-    "https://www.masoutis.gr/categories/index/proinoy-glykismata",
-    "https://www.masoutis.gr/categories/index/snaks-xiroi-karpoi",
-    "https://www.masoutis.gr/categories/index/mpaharia-souses-ladia",
-    "https://www.masoutis.gr/categories/index/kafes-rofimata",
-    "https://www.masoutis.gr/categories/index/vrefika-paidika",
-    "https://www.masoutis.gr/categories/index/prosopiki-frontida",
-    "https://www.masoutis.gr/categories/index/kathariothta-oikiaka",
-    "https://www.masoutis.gr/categories/index/katoikidia",
+    "https://www.masoutis.gr/categories/index/biologika-proionta?item=5",
+    "https://www.masoutis.gr/categories/index/vegan-proionta?item=6",
+    "https://www.masoutis.gr/categories/index/proionta-xwris-gloutenh?item=7",
+    "https://www.masoutis.gr/categories/index/kalathi-noikokuriou?item=8",
+    "https://www.masoutis.gr/categories/index/monimh-meiwsh-timhs?item=9",
+    "https://www.masoutis.gr/categories/index/prwina?item=544",
+    "https://www.masoutis.gr/categories/index/brefikh-frontida?item=545",
+    "https://www.masoutis.gr/categories/index/eidh-pantopwleiou?item=562",
+    "https://www.masoutis.gr/categories/index/dressing?item=563",
+    "https://www.masoutis.gr/categories/index/ugieinh-diatrofh?item=564",
+    "https://www.masoutis.gr/categories/index/kreopwleio?item=565",
+    "https://www.masoutis.gr/categories/index/manabiko?item=566",
+    "https://www.masoutis.gr/categories/index/katoikidia?item=567",
+    "https://www.masoutis.gr/categories/index/eidh-psugeiou?item=568",
+    "https://www.masoutis.gr/categories/index/proswpikh-peripoihsh?item=570",
+    "https://www.masoutis.gr/categories/index/zaxarwdh-mpiskota?item=571",
+    "https://www.masoutis.gr/categories/index/eidh-katharismou?item=572",
+    "https://www.masoutis.gr/categories/index/eidh-katapsukshs?item=573",
+    "https://www.masoutis.gr/categories/index/kaba?item=574",
+    "https://www.masoutis.gr/categories/index/artozaxaroplasteio?item=575",
+    "https://www.masoutis.gr/categories/index/ugieinh-xartika?item=576",
+    "https://www.masoutis.gr/categories/index/zumarika-ospria?item=577",
+    "https://www.masoutis.gr/categories/index/konserboeidh?item=578",
+    "https://www.masoutis.gr/categories/index/snack-kshroi-karpoi?item=579",
+    "https://www.masoutis.gr/categories/index/eidh-oikiakhs?item=727",
+    "https://www.masoutis.gr/categories/index/paixnidia?item=1785",
+    "https://www.masoutis.gr/categories/index/ixthuopwleio?item=2267",
 ];
 const KRITIKOS_URLS =[
     "https://kritikos-sm.gr/offers/", "https://kritikos-sm.gr/categories/manabikh/", "https://kritikos-sm.gr/categories/fresko-kreas/", "https://kritikos-sm.gr/categories/allantika/", "https://kritikos-sm.gr/categories/turokomika/", "https://kritikos-sm.gr/categories/galaktokomika/", "https://kritikos-sm.gr/categories/eidh-psugeiou/", "https://kritikos-sm.gr/categories/katapsuxh/", "https://kritikos-sm.gr/categories/pantopwleio/", "https://kritikos-sm.gr/categories/kaba/", "https://kritikos-sm.gr/categories/proswpikh-frontida/", "https://kritikos-sm.gr/categories/brefika/", "https://kritikos-sm.gr/categories/kathariothta/", "https://kritikos-sm.gr/categories/oikiakh-xrhsh/", "https://kritikos-sm.gr/categories/pet-shop/", "https://kritikos-sm.gr/categories/biologikaleitourgika/"
