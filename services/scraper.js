@@ -678,27 +678,83 @@ async function scrapeMasoutis(page, storeName, config, allFound) {
     }
 }
 async function scrapeKritikos(page, storeName, config, allFound) {
-    let fails = 0;
-    
-    // ΠΕΡΙΜΕΝΟΥΜΕ ΝΑ ΦΥΓΕΙ ΤΟ ΛΕΥΚΟ ΠΛΑΙΣΙΟ (Hydration delay)
-    try { 
-        await page.waitForSelector(config.card, { timeout: 15000 }); 
-    } catch (e) { 
-        console.log(`\n⏳ Timeout αναμονής προϊόντων στον Κρητικό.`); 
+    /*
+     * Kritikos is a Next.js app and ships the whole category — every
+     * subcategory, every product — inside __NEXT_DATA__ on first paint. Reading
+     * it is one property access against a page we already loaded, instead of
+     * scrolling a list and hoping the extractor sees each row before it is
+     * recycled.
+     *
+     * Measured on /categories/pantopwleio: 2,835 products across 30
+     * subcategories, every one carrying a price and an image. Prices arrive in
+     * cents as integers, and images as a base URL plus a filename.
+     */
+    const rows = await page.evaluate(() => {
+        const sp = window.__NEXT_DATA__ && window.__NEXT_DATA__.props
+            && window.__NEXT_DATA__.props.pageProps
+            && window.__NEXT_DATA__.props.pageProps.staticProducts;
+        if (!sp) return null;
+        const out = [];
+        for (const bucket of Object.keys(sp)) {
+            for (const it of sp[bucket] || []) {
+                if (it.enabled === false || it.available === false) continue;
+                out.push({
+                    name: it.name || it.displayName || '',
+                    finalPrice: it.finalPrice,
+                    beginPrice: it.beginPrice,
+                    primary: it.images && it.images.primary,
+                    baseUrl: it.images && it.images.baseUrl,
+                });
+            }
+        }
+        return out;
+    });
+
+    if (!rows) {
+        console.log('  Κρητικός: __NEXT_DATA__ missing, falling back to scrolling');
+        return scrapeKritikosByScroll(page, storeName, config, allFound);
     }
 
+    let added = 0;
+    for (const r of rows) {
+        const name = String(r.name || '').trim();
+        if (!name) continue;
+        /* finalPrice is an integer number of cents. */
+        const price = Number(r.finalPrice) > 0 ? Number(r.finalPrice) / 100 : 0;
+        if (!price) continue;
+        const was = Number(r.beginPrice) > 0 ? Number(r.beginPrice) / 100 : null;
+        const normalizedName = name.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+        if (allFound.has(normalizedName)) continue;
+        allFound.set(normalizedName, {
+            name,
+            normalizedName,
+            supermarket: storeName,
+            price,
+            oldPrice: was && was > price ? was : null,
+            isOnSale: Boolean(was && was > price),
+            imageUrl: r.primary && r.baseUrl ? r.baseUrl + r.primary : null,
+        });
+        added++;
+    }
+    console.log('  Κρητικός: ' + added + ' new of ' + rows.length + ' in page data (' + allFound.size + ' total)');
+}
+
+/* Kept as the fallback for the day __NEXT_DATA__ stops carrying the catalogue.
+   It is the previous behaviour verbatim: scroll, extract, stop after fifteen
+   passes that add nothing. */
+async function scrapeKritikosByScroll(page, storeName, config, allFound) {
+    let fails = 0;
+    try {
+        await page.waitForSelector(config.card, { timeout: 15000 });
+    } catch (e) {
+        console.log('Timeout αναμονής προϊόντων στον Κρητικό.');
+    }
     while (fails < 15) {
         const products = await page.evaluate(extractDataInBrowser, storeName, config);
         let addedNew = false;
-        products.forEach(p => { if (!allFound.has(p.normalizedName)) { allFound.set(p.normalizedName, p); addedNew = true; }});
-        
+        products.forEach(p => { if (!allFound.has(p.normalizedName)) { allFound.set(p.normalizedName, p); addedNew = true; } });
         if (addedNew) { fails = 0; } else { fails++; }
-        
-        // Κάνουμε πιο ομαλό scroll για τον Κρητικό
-        for (let i = 0; i < 6; i++) { 
-            await page.keyboard.press('PageDown'); 
-            await sleep(150); 
-        }
+        for (let i = 0; i < 6; i++) { await page.keyboard.press('PageDown'); await sleep(150); }
         await sleep(600);
     }
 }
