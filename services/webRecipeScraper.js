@@ -1,5 +1,5 @@
 // services/webRecipeScraper.js
-// Scrapes Greek recipe sites: Akis, Panos Ioannidis, GymBeam, NutriRoots
+// Scrapes Greek recipe sites: Akis, Panos Ioannidis, GymBeam, Argiro
 // Uses Puppeteer (same install as grocery scraper — no extra deps needed)
 
 const puppeteer = require('puppeteer-extra');
@@ -559,6 +559,42 @@ const WP_SITES = {
     },
 };
 
+/*
+ * Link collection from a site's own sitemap rather than by crawling listing
+ * pages. Argiro publishes four recipe sitemaps holding roughly 3,500 URLs, so
+ * this is both far more complete than paging a listing and much cheaper — plain
+ * HTTP, no browser.
+ *
+ * The pool is shuffled before slicing so successive runs reach different parts
+ * of the catalogue instead of re-scraping the same first N every week.
+ */
+async function getSitemapLinks(sitemaps, max, pattern) {
+    const links = new Set();
+    for (const sm of sitemaps) {
+        if (links.size >= max * 6) break;   // enough to shuffle from
+        try {
+            const res = await fetch(sm, {
+                headers: { 'User-Agent': 'Mozilla/5.0 (compatible; KalathakiBot/1.0; +https://kalathaki.vercel.app)' },
+                signal: AbortSignal.timeout(30000),
+            });
+            if (!res.ok) { console.error(`  ⚠️  sitemap ${sm}: HTTP ${res.status}`); continue; }
+            const xml = await res.text();
+            for (const m of xml.matchAll(/<loc>([^<]+)<\/loc>/g)) {
+                const u = m[1].trim().replace(/^http:/, 'https:');
+                if (pattern.test(u)) links.add(u);
+            }
+        } catch (e) {
+            console.error(`  ⚠️  sitemap ${sm}: ${e.message}`);
+        }
+    }
+    const pool = [...links];
+    for (let i = pool.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [pool[i], pool[j]] = [pool[j], pool[i]];
+    }
+    return pool.slice(0, max);
+}
+
 async function getWpLinks(page, siteKey, max) {
     const cfg = WP_SITES[siteKey];
     const links = new Set();
@@ -728,10 +764,28 @@ const SITES = {
         getLinks:    getGymBeamLinks,
         parseRecipe: parseGymBeamRecipe,
     },
-    nutriroots: {
-        label:       'NutriRoots',
-        maxRecipes:  20,
-        getLinks:    (page, max) => getWpLinks(page, 'nutriroots', max),
+    /*
+     * Argiro replaces NutriRoots, which was collecting 20 links a run and
+     * skipping 19 of them with "no recipe content": its recipe pages render
+     * nothing a scraper can read — verified with a real browser, networkidle
+     * and a four-second wait, and the body still came back at 1.4KB of cookie
+     * banner and footer nav, no h1 and no JSON-LD. Nineteen wasted page loads
+     * and nineteen warnings every week for one recipe.
+     *
+     * Argiro is the opposite: plain server-rendered HTML with a complete
+     * schema.org Recipe block. Spot-checked /recipe/mousakas — 25 ingredients,
+     * 31 steps, image, totalTime PT1H35M, recipeYield — all of it parsed by the
+     * JSON-LD path that already exists.
+     */
+    argiro: {
+        label:       'Αργυρώ Μπαρμπαρίγου',
+        maxRecipes:  60,
+        getLinks:    (page, max) => getSitemapLinks([
+            'https://www.argiro.gr/recipe-sitemap.xml',
+            'https://www.argiro.gr/recipe-sitemap2.xml',
+            'https://www.argiro.gr/recipe-sitemap3.xml',
+            'https://www.argiro.gr/recipe-sitemap4.xml',
+        ], max, /^https:\/\/www\.argiro\.gr\/recipe\/[^/]+\/$/),
         parseRecipe: parseWpRecipe,
     },
 };
@@ -740,7 +794,7 @@ const SITES = {
 
 /**
  * Scrape recipes from Greek recipe sites and save to MongoDB.
- * @param {string} siteKey  — 'akis' | 'panos' | 'gymbeam' | 'nutriroots' | 'all'
+ * @param {string} siteKey  — 'akis' | 'panos' | 'gymbeam' | 'argiro' | 'all'
  */
 async function scrapeWebRecipes(siteKey = 'all') {
     const keys = siteKey === 'all' ? Object.keys(SITES) : [siteKey];
@@ -815,6 +869,29 @@ async function scrapeWebRecipes(siteKey = 'all') {
                         Array.isArray(raw.instructions) ? raw.instructions : splitInstructionText(raw.instructions || ''),
                         { instructions: true }
                     );
+                    /*
+                     * Both lists must survive sanitising, not just one of them.
+                     *
+                     * The gate above passes a page that has instructions but no
+                     * ingredients at all — and such pages are real: argiro.gr's
+                     * "Μηλόπιτα στο τηγάνι" carries 14 steps and a Recipe node
+                     * with no recipeIngredient key whatsoever, and nothing in the
+                     * DOM either. Nothing re-checked after sanitising, so that
+                     * recipe would have been written with an empty ingredient
+                     * list: no cost to show, nothing to match against products,
+                     * and an empty panel in the app. Sanitising can also empty a
+                     * list that arrived non-empty, which the earlier gate cannot
+                     * see by construction.
+                     *
+                     * A single ingredient is a parse failure rather than a
+                     * recipe, so two is the floor.
+                     */
+                    if (cleanIngredients.length < 2 || cleanInstructions.length < 1) {
+                        skipped++;
+                        console.log(`  ⏭️  incomplete (${cleanIngredients.length} ing / ${cleanInstructions.length} steps): ${cleanStr(raw.title).substring(0, 45)}`);
+                        continue;
+                    }
+
                     const time       = parseDuration(raw.timeRaw) || raw.time || null;
                     const difficulty = getDifficulty(time, cleanIngredients.length || 0);
                     const category   = mapCategory([raw.title, raw.description, ...(raw.keywords || []), ...cleanIngredients]);
@@ -899,8 +976,20 @@ async function scrapeWebRecipes(siteKey = 'all') {
     return { added: totalAdded, skipped: totalSkipped, errors: totalErrors };
 }
 
-// ── DB cap: keep only the newest N recipes (favorites are never deleted) ──────
-const RECIPE_CAP = parseInt(process.env.RECIPE_CAP || '50', 10);
+/* ── DB cap: keep only the newest N recipes (favorites are never deleted) ─────
+ *
+ * The cap was 50, which the scraper hit on its very first pass: a run that
+ * added 91 recipes then deleted 91 of them, every week, for months. The app
+ * showed 32.
+ *
+ * 50 was set while the cluster was against its 512MB wall. It is not the right
+ * number now, and it never bought much: measured against the live collection, a
+ * recipe document averages 3.0KB, so a thousand of them cost about 2.9MB — next
+ * to nothing beside 73k products. Raised to 500, which is roughly 1.5MB and
+ * gives the tab a catalogue rather than a sample. Still overridable with
+ * RECIPE_CAP if storage ever gets tight again.
+ */
+const RECIPE_CAP = parseInt(process.env.RECIPE_CAP || '500', 10);
 
 async function enforceRecipeCap(cap = RECIPE_CAP) {
     const Favorite = require('../models/Favorite');
