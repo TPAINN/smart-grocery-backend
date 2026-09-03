@@ -221,6 +221,53 @@ app.use('/api/auth/by-key',             adminOpLimiter);  // throttle user enume
 app.use(['/api/debug-scrape', '/api/force-scrape', '/api/force-recipes', '/api/backfill-macros'], adminOpLimiter);
 
 // Το strictLimiter για register/login ορίζεται μέσα στο routes/auth.js
+
+// ── GET /api/stats — the numbers the header states as fact ───────────────────
+//
+// Mirrors the same-origin Vercel function. It exists here because the client
+// falls back to this service when the Vercel function is unavailable, and
+// /api/stats answered 404 — so the header's product count, chain count and
+// "last scraped" line all went blank precisely when something was already
+// wrong. Verified against the deployed service before adding it.
+//
+// countDocuments rather than estimatedDocumentCount: the estimate reads
+// collection metadata, which goes stale after a bulk delete or a restore and
+// then reports a number that has not been true for weeks — exactly the
+// confident-but-wrong figure this endpoint exists to prevent. The response is
+// cached, so the scan is not paid per request.
+app.get('/api/stats', async (req, res) => {
+  try {
+    const Product = require('./models/Product');
+    const Recipe  = require('./models/Recipe');
+
+    const [priced, documents, byChain, newest, recipes] = await Promise.all([
+      Product.countDocuments({ price: { $gt: 0 } }),
+      Product.countDocuments({}),
+      Product.aggregate([
+        { $group: { _id: '$supermarket', n: { $sum: 1 }, newest: { $max: '$dateScraped' } } },
+        { $sort: { n: -1 } },
+      ]),
+      Product.findOne({ dateScraped: { $exists: true } }).sort({ dateScraped: -1 }).select('dateScraped').lean(),
+      Recipe.countDocuments({ 'ingredients.0': { $exists: true } }),
+    ]);
+
+    res.set('Cache-Control', 'public, s-maxage=600, stale-while-revalidate=3600');
+    res.json({
+      // Only rows with a usable price: a row without one is not a product
+      // anyone can look up, and counting it inflates the headline for free.
+      products: priced,
+      documents,
+      chains: byChain.map((c) => c._id).filter(Boolean).length,
+      recipes,
+      newestScrape: newest?.dateScraped ?? null,
+      byChain: byChain.map((c) => ({ chain: c._id ?? null, count: c.n, newest: c.newest ?? null })),
+    });
+  } catch {
+    res.set('Cache-Control', 'no-store');
+    res.status(500).json({ message: 'Σφάλμα στατιστικών.' });
+  }
+});
+
 app.use('/api/auth',      generalAuthLimiter, authRoutes);
 app.use('/api/prices',    cacheMiddleware(600),  pricesRoutes);  // 10 min — prices change ~1x/day; scrape flushes cache
 app.use('/api/lists',     listRoutes);
