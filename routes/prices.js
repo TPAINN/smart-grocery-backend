@@ -211,6 +211,66 @@ router.get('/', async (req, res) => {
   }
 });
 
+
+// ── GET /browse — the whole catalogue, paged ─────────────────────────────────
+//
+// This exists because the frontend's fallback path was broken. Reads normally
+// go to the same-origin Vercel function; on a 404 or a 503 the client marks
+// same-origin down and retries here. Every other read endpoint it needs is
+// served here — search, top-offers, recipes — but /browse was not, so the
+// fallback for the catalogue answered 404 and the grid came back empty with no
+// error to explain it. Verified against the deployed service before adding it.
+//
+// The response shape and the sort semantics deliberately match the Vercel
+// function, so a fallback is invisible to the client rather than a different
+// catalogue with a different order.
+const BROWSE_SORTS = {
+  name:         { name: 1, supermarket: 1, _id: 1 },
+  'price-asc':  { price: 1, _id: 1 },
+  'price-desc': { price: -1, _id: 1 },
+  discount:     { discountPct: -1, _id: 1 },
+};
+const BROWSE_CHAINS = new Set([
+  'ΑΒ Βασιλόπουλος', 'Σκλαβενίτης', 'Μασούτης', 'Κρητικός',
+  'MyMarket', 'Market In', 'Lidl', 'Γαλαξίας',
+]);
+
+router.get('/browse', async (req, res) => {
+  try {
+    const page  = Math.min(2000, Math.max(1, parseInt(req.query.page) || 1));
+    const limit = Math.min(48, Math.max(1, parseInt(req.query.limit) || 48));
+
+    // Allow-list rather than escaping: an unknown chain filters nothing instead
+    // of reaching Mongo, and an unknown sort falls back to the default.
+    const store = BROWSE_CHAINS.has(String(req.query.store || '')) ? String(req.query.store) : '';
+    const sortKey = Object.hasOwn(BROWSE_SORTS, String(req.query.sort || '')) ? String(req.query.sort) : 'name';
+
+    // Rows without a usable price exist but cannot be rendered, so they are out
+    // of the results and the total alike — otherwise the header promises more
+    // than the grid can ever show.
+    const filter = {
+      price: { $gt: 0 },
+      ...(store ? { supermarket: store } : {}),
+      ...(sortKey === 'discount' ? { discountPct: { $gt: 0 } } : {}),
+    };
+
+    const [items, total] = await Promise.all([
+      Product.find(filter)
+        .select('name price oldPrice supermarket imageUrl pricePerUnit discountPercent discountPct dateScraped')
+        .sort(BROWSE_SORTS[sortKey])
+        .skip((page - 1) * limit)
+        .limit(limit)
+        .lean(),
+      Product.countDocuments(filter),
+    ]);
+
+    res.set('Cache-Control', 'public, s-maxage=900, stale-while-revalidate=3600');
+    res.json({ items, total, page, pages: Math.ceil(total / limit), sort: sortKey });
+  } catch (error) {
+    res.status(500).json({ message: 'Σφάλμα φόρτωσης καταλόγου.' });
+  }
+});
+
 // ── Greek phonetic normalization (iotacism) ──────────────────────────────────
 // In modern Greek, η (eta), ι (iota), υ (upsilon) are ALL pronounced like "i".
 // This is called iotacism. Users may type any of these where the product DB uses another.
