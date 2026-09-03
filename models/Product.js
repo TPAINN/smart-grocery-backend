@@ -12,6 +12,11 @@ const productSchema = new mongoose.Schema({
   isOnSale: { type: Boolean, default: false },
   is1plus1: { type: Boolean, default: false },
   discountPercent: { type: String, default: null },
+  // Numeric companion to discountPercent, computed once at scrape time by
+  // lib/discountPct.js. discountPercent is the retailer's badge text, so it
+  // sorts lexicographically ("9" above "50") and parseInt('-20%') is negative.
+  // null rather than 0 when there is no offer, so `$gt: 0` excludes non-offers.
+  discountPct: { type: Number, default: null },
   imageUrl: { type: String, default: null },
   dateScraped: { type: Date, default: Date.now }
 }, { timestamps: false });
@@ -28,5 +33,9 @@ productSchema.index({ normalizedName: 1, price: 1 });
 // Recency window for top-offers + scrape-status + latest-scrape lookups.
 // (sort/range on dateScraped was previously a full scan.)
 productSchema.index({ dateScraped: -1 });
+// Offers sort. Partial so the index holds only the rows that actually carry a
+// discount — a few thousand entries rather than one per product — which is both
+// smaller and exactly the set the `discountPct > 0` query asks for.
+productSchema.index({ discountPct: -1, _id: 1 }, { partialFilterExpression: { discountPct: { $gt: 0 } } });
 
 module.exports = mongoose.model('Product', productSchema);
