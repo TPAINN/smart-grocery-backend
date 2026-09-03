@@ -1,3 +1,4 @@
+const { discountPct } = require('../lib/discountPct');
 // services/scraper.js
 require('dotenv').config();
 const cron = require('node-cron');
@@ -964,10 +965,13 @@ async function scrapeTask({ page, data: { url, storeName } }) {
 
     if (finalProducts.length > 0) {
         const now = new Date();
+        /* Computed here, at the single point every chain's products pass
+           through, so no extractor can forget it and no reader has to re-derive
+           a number from the badge text. */
         const bulkOps = finalProducts.map(product => ({
             updateOne: {
                 filter: { normalizedName: product.normalizedName, supermarket: product.supermarket },
-                update: { $set: { ...product, dateScraped: now } },
+                update: { $set: { ...product, discountPct: discountPct(product), dateScraped: now } },
                 upsert: true
             }
         }));

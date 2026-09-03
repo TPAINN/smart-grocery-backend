@@ -1,0 +1,58 @@
+# NOT YET INSTALLED — copy this file to .github/workflows/backfill-discount.yml
+#
+# It lives here because the token this repo is pushed with lacks GitHub's
+# `workflow` scope, so it cannot create or update files under .github/workflows.
+# Moving it into place is a one-line local commit from an account that can:
+#
+#   git mv scripts/backfill-discount.workflow.yml .github/workflows/backfill-discount.yml
+#
+name: Backfill numeric discount
+
+# Product.discountPct is computed at scrape time from now on, but rows already
+# in the collection predate the field. Until they carry it the offers sort would
+# see only recently rescraped products.
+#
+# Runs where MONGO_URI already exists as a secret, so the connection string
+# never has to be copied onto anyone's machine. Dry run unless `confirm` is
+# ticked.
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Actually write. Unticked = dry run.'
+        required: false
+        default: false
+        type: boolean
+
+jobs:
+  backfill:
+    name: Compute discountPct for existing products
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --omit=dev
+
+      - name: Run unit tests
+        # The backfill writes to every product row, so the function deciding
+        # what it writes gets checked before it runs, not after.
+        run: node --test test/discountPct.test.js
+
+      - name: Backfill
+        env:
+          MONGO_URI: ${{ secrets.MONGO_URI }}
+        run: |
+          if [ "${{ inputs.confirm }}" = "true" ]; then
+            node scripts/backfill-discount.js --confirm
+          else
+            node scripts/backfill-discount.js
+          fi
