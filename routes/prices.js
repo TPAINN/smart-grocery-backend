@@ -256,7 +256,7 @@ router.get('/browse', async (req, res) => {
 
     const [items, total] = await Promise.all([
       Product.find(filter)
-        .select('name price oldPrice supermarket imageUrl pricePerUnit discountPercent discountPct dateScraped')
+        .select('name price oldPrice supermarket imageUrl pricePerUnit discountPercent discountPct discountSource dateScraped')
         .sort(BROWSE_SORTS[sortKey])
         .skip((page - 1) * limit)
         .limit(limit)
