@@ -1,5 +1,6 @@
 const { discountPct } = require('../lib/discountPct');
 const { galaxiasOffer } = require('../lib/galaxiasOffer');
+const { historyDiscount, MIN_DAYS } = require('../lib/historyDiscount');
 
 /* "€1,10" / "1,10 €" / "1.10" -> 1.1. Greek prices use the comma as the decimal
    separator, so a plain parseFloat stops at the comma and returns 1. */
@@ -175,7 +176,21 @@ const STORE_CONFIGS = {
         img: 'img[class*="ProductListItem_productImage"], [class*="ProductListItem"] img'
     },
     'MyMarket': { card: 'article.product--teaser', name: '.line-clamp-2', oldPrice: '.diagonal-line', promo: '.product-note-tag, [class*="badge-promo"], [class*="offer-label"]', nextBtn: 'a[rel="next"]', img: '.teaser-image-container img, picture img, img[loading="lazy"]' },
-    'Μασούτης': { card: '.product', name: '.productTitle', price: '.pStartPrice', oldPrice: '.pStartPrice', promo: '.pDscntPercent', loader: '.lds-spinner', img: '.productImage, .catImgCont img, img' },
+    /* `.pStartPrice` is dead markup: measured 0 of 100 cards on both a normal
+       category and their own offers page, while `.price` is 100 of 100. Prices
+       only kept working because the generic reader falls back to
+       [class*="price"], which happens to hit `.price` first in document order —
+       one DOM reshuffle away from silently storing the per-kilo price instead.
+       Named explicitly now.
+
+       `oldPrice` is gone rather than repointed. It used to be the SAME selector
+       as `price`, so the old price could never differ from the new one, and
+       Μασούτης publishes no previous price at all — 100 products on its offers
+       page, none with one. Their discounts come from history instead.
+
+       `promo` is gone for the same reason: `.pDscntPercent` holds the word
+       «μόνo» on every card that has it, never a percentage. */
+    'Μασούτης': { card: '.product', name: '.productTitle', price: '.price', loader: '.lds-spinner', img: '.productImage, .catImgCont img, img' },
     'Market In': { card: '.product-grid-box, .product', name: '.product-ttl', price: '.new-price', oldPrice: '.old-price', promo: '.disc-value', nextBtn: 'span.material-icons, a.next', img: '.product-thumb img, img[src*="market-in"]' },
     'Γαλαξίας': { card: 'product-card', name: 'a.text-black-i', price: 'span[style*="rgb(2, 88, 165)"], .current-price, .price-label, [class*="price"]:not([class*="old"]):not([class*="base"])', promo: '.bg-secondary.text-primary', img: 'img[src*="galaxias"], img[src*="api/media"], img[data-src*="galaxias"], img[lazy-src*="galaxias"], product-card img' },
     'Lidl': {
@@ -600,6 +615,65 @@ async function scrapeAB(page, storeName, config, allFound, categoryUrl) {
         }
     }
 }
+/*
+ * Fills in a discount for products whose chain publishes none.
+ *
+ * Half the chains do not put an old price anywhere a scraper can reach —
+ * verified on their own offers pages — so for those the only available signal
+ * is that the price has fallen below where it had been sitting. We already
+ * store one price point per product per day, which is exactly the evidence
+ * needed, and lib/historyDiscount.js holds the rules for reading it.
+ *
+ * Only ever fills a gap. A product that came with its own old price or badge is
+ * left alone: the shop's own claim outranks our inference, and overwriting it
+ * would replace a fact with an estimate.
+ *
+ * One aggregation per chain rather than a query per product. The series index
+ * was deliberately dropped from PriceHistory to save 15 MB on a full cluster,
+ * so a per-product lookup would be a collection scan each time — 15,000 scans
+ * per chain. Grouping once reads the same rows a single time.
+ *
+ * Best-effort throughout: a chain that has not been tracked long enough simply
+ * gets nothing, and any failure here must not cost the scrape its products.
+ */
+async function applyHistoryDiscounts(products, storeName, now) {
+    const needy = products.filter((p) =>
+        p && p.price > 0 && !p.oldPrice && !p.discountPercent && !p.is1plus1);
+    if (!needy.length) return;
+
+    try {
+        const PriceHistory = require('../models/PriceHistory');
+        const today = now.toISOString().slice(0, 10);
+
+        /* Today's point is written after this runs, but excluding it explicitly
+           keeps the maths right if that order ever changes. */
+        const rows = await PriceHistory.aggregate([
+            { $match: { supermarket: storeName, day: { $ne: today } } },
+            { $group: { _id: '$normalizedName', prices: { $push: '$price' } } },
+        ]).allowDiskUse(true);
+
+        const byName = new Map(rows.map((r) => [r._id, r.prices]));
+
+        let found = 0;
+        for (const p of needy) {
+            const hit = historyDiscount(p.price, byName.get(p.normalizedName));
+            if (!hit) continue;
+            p.oldPrice = hit.oldPrice;
+            p.isOnSale = true;
+            /* Marked so the app can word it as "cheaper than usual" rather than
+               as a shop-advertised offer, which is a different claim. */
+            p.discountSource = 'history';
+            found++;
+        }
+
+        console.log(`  📉 [${storeName}] history-derived offers: ${found}`
+            + ` (of ${needy.length} without one, from ${byName.size} tracked products,`
+            + ` needs ${MIN_DAYS}+ prior days)`);
+    } catch (e) {
+        console.warn(`  [historyDiscount] skip (${storeName}): ${e.message}`);
+    }
+}
+
 async function scrapeGalaxias(page, storeName, config, allFound, categoryUrl) {
     /*
      * Galaxias runs Magento 2 and exposes the same GraphQL its own storefront
@@ -1014,13 +1088,24 @@ async function scrapeTask({ page, data: { url, storeName } }) {
 
     if (finalProducts.length > 0) {
         const now = new Date();
+        await applyHistoryDiscounts(finalProducts, storeName, now);
         /* Computed here, at the single point every chain's products pass
            through, so no extractor can forget it and no reader has to re-derive
            a number from the badge text. */
         const bulkOps = finalProducts.map(product => ({
             updateOne: {
                 filter: { normalizedName: product.normalizedName, supermarket: product.supermarket },
-                update: { $set: { ...product, discountPct: discountPct(product), dateScraped: now } },
+                update: {
+                    $set: {
+                        ...product,
+                        discountPct: discountPct(product),
+                        /* 'history' is stamped by applyHistoryDiscounts above and
+                           kept; anything else with a discount came from the shop. */
+                        discountSource: product.discountSource
+                            || (discountPct(product) != null ? 'chain' : null),
+                        dateScraped: now,
+                    },
+                },
                 upsert: true
             }
         }));
