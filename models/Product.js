@@ -17,6 +17,11 @@ const productSchema = new mongoose.Schema({
   // sorts lexicographically ("9" above "50") and parseInt('-20%') is negative.
   // null rather than 0 when there is no offer, so `$gt: 0` excludes non-offers.
   discountPct: { type: Number, default: null },
+  // 'chain' when the shop published the offer itself, 'history' when we
+  // inferred it from our own price series because the shop publishes none —
+  // half the chains do not. The app can then say "cheaper than usual" rather
+  // than claiming the shop advertised a discount, which is a different claim.
+  discountSource: { type: String, default: null },
   imageUrl: { type: String, default: null },
   dateScraped: { type: Date, default: Date.now }
 }, { timestamps: false });
