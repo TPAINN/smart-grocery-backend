@@ -642,26 +642,48 @@ async function scrapeAB(page, storeName, config, allFound, categoryUrl) {
  * so a per-product lookup would be a collection scan each time — 15,000 scans
  * per chain. Grouping once reads the same rows a single time.
  *
+ * And once per CHAIN, not once per call. A scrape task is queued per URL, not
+ * per chain — Σκλαβενίτης alone has about 150 of them — so without this cache
+ * the aggregation, which cannot use the compound index because it filters on
+ * supermarket rather than on the leading normalizedName, would full-scan a
+ * ~478,000-row collection a couple of hundred times per run.
+ *
  * Best-effort throughout: a chain that has not been tracked long enough simply
  * gets nothing, and any failure here must not cost the scrape its products.
  */
+const historyByChain = new Map();
+
+/* Cleared at the start of every run so a long-lived process cannot serve
+   yesterday's baseline. */
+function resetHistoryCache() { historyByChain.clear(); }
+
+async function chainPriceHistory(storeName, today) {
+    if (historyByChain.has(storeName)) return historyByChain.get(storeName);
+
+    const PriceHistory = require('../models/PriceHistory');
+    const started = Date.now();
+    const rows = await PriceHistory.aggregate([
+        { $match: { supermarket: storeName, day: { $ne: today } } },
+        { $group: { _id: '$normalizedName', prices: { $push: '$price' } } },
+    ]).allowDiskUse(true);
+
+    const byName = new Map(rows.map((r) => [r._id, r.prices]));
+    historyByChain.set(storeName, byName);
+    console.log(`  🗂️  [${storeName}] price history loaded: ${byName.size} products`
+        + ` in ${((Date.now() - started) / 1000).toFixed(1)}s`);
+    return byName;
+}
+
 async function applyHistoryDiscounts(products, storeName, now) {
     const needy = products.filter((p) =>
         p && p.price > 0 && !p.oldPrice && !p.discountPercent && !p.is1plus1);
     if (!needy.length) return;
 
     try {
-        const PriceHistory = require('../models/PriceHistory');
-        const today = now.toISOString().slice(0, 10);
-
         /* Today's point is written after this runs, but excluding it explicitly
            keeps the maths right if that order ever changes. */
-        const rows = await PriceHistory.aggregate([
-            { $match: { supermarket: storeName, day: { $ne: today } } },
-            { $group: { _id: '$normalizedName', prices: { $push: '$price' } } },
-        ]).allowDiskUse(true);
-
-        const byName = new Map(rows.map((r) => [r._id, r.prices]));
+        const today = now.toISOString().slice(0, 10);
+        const byName = await chainPriceHistory(storeName, today);
 
         let found = 0;
         for (const p of needy) {
@@ -675,9 +697,10 @@ async function applyHistoryDiscounts(products, storeName, now) {
             found++;
         }
 
-        console.log(`  📉 [${storeName}] history-derived offers: ${found}`
-            + ` (of ${needy.length} without one, from ${byName.size} tracked products,`
-            + ` needs ${MIN_DAYS}+ prior days)`);
+        if (found) {
+            console.log(`  📉 [${storeName}] history-derived offers: ${found}`
+                + ` of ${needy.length} without one (needs ${MIN_DAYS}+ prior days)`);
+        }
     } catch (e) {
         console.warn(`  [historyDiscount] skip (${storeName}): ${e.message}`);
     }
@@ -1271,6 +1294,7 @@ async function runWebScraper(targetStore = null) {
         console.error(`❌ Task error [${data?.storeName || data?.url}]: ${err?.message || err}`);
     });
 
+    resetHistoryCache();
     await cluster.task(scrapeTask);
     storeMap.forEach(data => cluster.queue(data));
     
