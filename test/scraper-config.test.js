@@ -100,3 +100,28 @@ test('no source file contains a stray control character', () => {
 
   assert.deepEqual(offenders, [], `control characters found:\n  ${offenders.join('\n  ')}`);
 });
+
+/*
+ * Μασούτης shipped with `price` and `oldPrice` set to the SAME selector
+ * ('.pStartPrice'). An old price that is read from the same element as the new
+ * one can never differ from it, so the chain could never register a single
+ * discount — and nothing failed, because both reads succeeded.
+ *
+ * The pair is only meaningful when the two point at different elements.
+ */
+test('no chain reads its old price from the same selector as its price', () => {
+  const block = /const STORE_CONFIGS\s*=\s*\{([\s\S]*?)\n\};/.exec(SRC)[1];
+  const offenders = [];
+
+  /* Each entry is one line or one brace-delimited object; pulling the two
+     fields per entry is enough without parsing JavaScript properly. */
+  for (const m of block.matchAll(/'([^']+)':\s*\{([\s\S]*?)\n?\s*\},/g)) {
+    const [, chain, body] = m;
+    const price = /(?:^|[^a-zA-Z])price:\s*'([^']*)'/.exec(body);
+    const old = /oldPrice:\s*'([^']*)'/.exec(body);
+    if (price && old && price[1] === old[1]) offenders.push(`${chain} -> ${price[1]}`);
+  }
+
+  assert.deepEqual(offenders, [],
+    `price and oldPrice share a selector, so a discount is impossible:\n  ${offenders.join('\n  ')}`);
+});
