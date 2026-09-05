@@ -191,7 +191,16 @@ const STORE_CONFIGS = {
        `promo` is gone for the same reason: `.pDscntPercent` holds the word
        «μόνo» on every card that has it, never a percentage. */
     'Μασούτης': { card: '.product', name: '.productTitle', price: '.price', loader: '.lds-spinner', img: '.productImage, .catImgCont img, img' },
-    'Market In': { card: '.product-grid-box, .product', name: '.product-ttl', price: '.new-price', oldPrice: '.old-price', promo: '.disc-value', nextBtn: 'span.material-icons, a.next', img: '.product-thumb img, img[src*="market-in"]' },
+    /* `.product-item` is the real card: measured 48 on a category page against
+       0 for the two selectors that were configured. The old ones are kept in
+       the list so a page that still uses them is not lost — they select
+       different classes, so nothing is counted twice.
+
+       `oldPrice` and `promo` are removed. Market In publishes neither: no
+       .old-price, no .disc-value and no strikethrough anywhere in 48 cards, and
+       the "second price" on 41 of them is the price per kilo, not a previous
+       price. Its discounts come from history instead. */
+    'Market In': { card: '.product-item, .product-grid-box, .product', name: '.product-ttl', price: '.new-price', nextBtn: 'span.material-icons, a.next', img: '.product-thumb img, img[src*="market-in"]' },
     'Γαλαξίας': { card: 'product-card', name: 'a.text-black-i', price: 'span[style*="rgb(2, 88, 165)"], .current-price, .price-label, [class*="price"]:not([class*="old"]):not([class*="base"])', promo: '.bg-secondary.text-primary', img: 'img[src*="galaxias"], img[src*="api/media"], img[data-src*="galaxias"], img[lazy-src*="galaxias"], product-card img' },
     'Lidl': {
         card: '.odsc-tile, .product-grid-box',
