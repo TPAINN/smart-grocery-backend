@@ -90,6 +90,41 @@ const QUOTA_MB = 512;
   console.log(`  reusable (freed)     ${mb(st.freeStorageSize || 0).padStart(10)}`);
   console.log(`  ON-DISK TOTAL        ${mb((st.storageSize || 0) + (st.indexSize || 0)).padStart(10)}`);
 
+  /* The alarm.
+   *
+   * A weekly report that always exits 0 is a report nobody reads. This
+   * collection has already filled the cluster once and blocked every write for
+   * 24 days while the scraper went on reporting success, so the check that
+   * matters is the one that fails the run: GitHub mails a failed scheduled
+   * workflow, and a green one it says nothing about.
+   *
+   * Measured against the accurate figure, not listDatabases' sizeOnDisk, which
+   * omits index bytes and space WiredTiger has allocated but not returned —
+   * on this cluster that gap is roughly a third of the true total.
+   *
+   * WARN at 60% leaves about five weeks at the growth this catalogue has shown;
+   * FAIL at 75% still leaves 128 MB, which is more than a full extra chain.
+   * Today it sits near 25%, so neither fires without something having changed.
+   */
+  const otherDbs = databases
+    .filter((d) => d.name !== 'smart_grocery')
+    .reduce((t, d) => t + (d.sizeOnDisk || 0), 0);
+  const usedMb = ((st.storageSize || 0) + (st.indexSize || 0) + otherDbs) / 1048576;
+  const pct = Math.round((usedMb / QUOTA_MB) * 100);
+  console.log(`
+  CLUSTER USED     ${usedMb.toFixed(1)} MB of ${QUOTA_MB} MB  (${pct}%)`);
+  if (pct >= 75) {
+    console.error(`
+❌ ${pct}% of the M0 quota. Shorten retention now:`);
+    console.error('   storage-maintenance workflow → mode=set-ttl, keep_days=5, confirm');
+    console.error('   then mode=prune, keep_days=5, confirm, then mode=reindex.');
+    process.exitCode = 2;
+  } else if (pct >= 60) {
+    console.error(`
+⚠️  ${pct}% of the M0 quota — act before it reaches 75%.`);
+    process.exitCode = 2;
+  }
+
   const cols = await db.listCollections().toArray();
 
   console.log('\n── smart_grocery collections ────────────────────────────');
