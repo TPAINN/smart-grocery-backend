@@ -8,6 +8,7 @@ puppeteer.use(StealthPlugin());
 
 const Recipe = require('../models/Recipe');
 const { estimateMacros } = require('./macroEstimator');
+const { recipeCategory } = require('../lib/recipeCategory.js');
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -131,17 +132,6 @@ function getDifficulty(minutes, ingCount) {
     return 'Δύσκολη';
 }
 
-function mapCategory(hints = []) {
-    const t = hints.join(' ').toLowerCase();
-    if (/πρωιν|breakfast/i.test(t))                        return 'Πρωινό';
-    if (/σαλατ/i.test(t))                                   return 'Σαλάτες';
-    if (/σουπ/i.test(t))                                    return 'Σούπες';
-    if (/σνακ|snack/i.test(t))                              return 'Σνακ';
-    if (/επιδορπ|γλυκ|dessert|κεικ|cake|μπισκοτ|τουρτ|ταρτ|tart|brownie|cheesecake/i.test(t)) return 'Επιδόρπια';
-    if (/συνοδευτ/i.test(t))                                return 'Συνοδευτικά';
-    if (/ροφημ|smoothie|shake|drink/i.test(t))              return 'Ροφήματα';
-    return 'Κυρίως';
-}
 
 function buildTags(r) {
     const tags = [];
@@ -894,7 +884,7 @@ async function scrapeWebRecipes(siteKey = 'all') {
 
                     const time       = parseDuration(raw.timeRaw) || raw.time || null;
                     const difficulty = getDifficulty(time, cleanIngredients.length || 0);
-                    const category   = mapCategory([raw.title, raw.description, ...(raw.keywords || []), ...cleanIngredients]);
+                    const category   = recipeCategory(raw);
                     const tags       = buildTags({ ...raw, time });
 
                     // ── AI macro estimation for recipes with missing nutrition ──
@@ -966,6 +956,17 @@ async function scrapeWebRecipes(siteKey = 'all') {
 
     console.log(`\n🍳 Web recipes done! Total: +${totalAdded} added, ${totalSkipped} skipped, ${totalErrors} errors`);
 
+    /* Re-file what is already stored under the current rules. A recipe keeps
+       whatever category it was given the day it was scraped, so fixing the
+       classifier fixes nothing on its own — the catalogue would stay wrong
+       until every recipe happened to be re-scraped. Cheap and idempotent: a few
+       hundred documents, and only the ones that actually move are written. */
+    try {
+        await recategorizeStored();
+    } catch (e) {
+        console.error('Recategorise failed:', e.message);
+    }
+
     // Rolling freshness: keep the DB at RECIPE_CAP recipes max.
     try {
         await enforceRecipeCap();
@@ -1022,4 +1023,31 @@ async function enforceRecipeCap(cap = RECIPE_CAP) {
     return { deleted: res.deletedCount, total: after };
 }
 
-module.exports = { scrapeWebRecipes, enforceRecipeCap, SITES };
+/**
+ * Re-apply recipeCategory() to every stored recipe.
+ * @returns {Promise<{moved: number, total: number}>}
+ */
+async function recategorizeStored() {
+    // Stored recipes keep no keywords field, so this re-files on the title and
+    // description alone — the same two hints that carry the dish name anyway.
+    const all = await Recipe.find({}, { title: 1, description: 1, category: 1 }).lean();
+    const ops = [];
+    const moves = new Map();
+    for (const r of all) {
+        const next = recipeCategory(r);
+        if (next === r.category) continue;
+        ops.push({ updateOne: { filter: { _id: r._id }, update: { $set: { category: next } } } });
+        const key = r.category + ' -> ' + next;
+        moves.set(key, (moves.get(key) || 0) + 1);
+    }
+    if (!ops.length) {
+        console.log(`Categories: all ${all.length} recipes already filed correctly`);
+        return { moved: 0, total: all.length };
+    }
+    await Recipe.bulkWrite(ops, { ordered: false });
+    console.log(`Categories: re-filed ${ops.length} of ${all.length} recipes`);
+    for (const [k, n] of [...moves].sort((a, b) => b[1] - a[1])) console.log(`     ${String(n).padStart(4)}  ${k}`);
+    return { moved: ops.length, total: all.length };
+}
+
+module.exports = { scrapeWebRecipes, enforceRecipeCap, recategorizeStored, SITES };
