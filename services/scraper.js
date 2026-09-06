@@ -14,7 +14,6 @@ function parseEuroText(text) {
 }
 // services/scraper.js
 require('dotenv').config();
-const cron = require('node-cron');
 const Product = require('../models/Product');
 const fs = require('fs');
 const path = require('path');
@@ -1346,5 +1345,4 @@ async function runWebScraper(targetStore = null) {
 // 🟢 Το API για να βλέπει το Frontend αν τρέχει το Scraper
 const getScrapingStatus = () => { return globalIsScraping; };
 
-const startCronJobs = () => { cron.schedule('20 8 * * *', runWebScraper); };
-module.exports = { startCronJobs, runWebScraper, getScrapingStatus, savedPerStore };
+module.exports = { runWebScraper, getScrapingStatus, savedPerStore };

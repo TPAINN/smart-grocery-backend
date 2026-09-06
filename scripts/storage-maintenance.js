@@ -128,7 +128,16 @@ const QUOTA_MB = 512;
   console.log('\n── pricehistories ───────────────────────────────────────');
   console.log(`  total            ${phTotal}`);
   console.log(`  older than ${String(KEEP_DAYS).padStart(3)}d   ${phOld}   (day < ${cutoffDay})`);
-  console.log(`  TTL index        ${(await ph.indexes()).some((i) => i.expireAfterSeconds != null) ? 'present' : 'MISSING — grows forever'}`);
+  /* The number, not just the presence. The schema declares 7 days, but Mongo
+     silently ignores a changed expireAfterSeconds on an index that already
+     exists, so the live window is the only one that matters — and the whole
+     512 MB budget rests on it. */
+  const liveTtl = (await ph.indexes()).find((i) => i.expireAfterSeconds != null);
+  console.log(`  TTL index        ${liveTtl ? `${liveTtl.expireAfterSeconds / 86400} days (\`${liveTtl.name}\`)` : 'MISSING — grows forever'}`);
+  if (liveTtl) {
+    const perDay = phTotal / Math.max(1, liveTtl.expireAfterSeconds / 86400);
+    console.log(`  at steady state  ~${Math.round(perDay).toLocaleString('en-US')} rows/day × window`);
+  }
 
   /* Indexes are 29% of this cluster's quota, and `pricehistories` carries
      115 MB of them across two. The unique {normalizedName, supermarket, day}

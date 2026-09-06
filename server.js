@@ -14,7 +14,7 @@ const { Server } = require('socket.io');
 const Message = require('./models/Message');
 
 // ── Services ──────────────────────────────────────────────────────────────────
-const { startCronJobs, runWebScraper, getScrapingStatus } = require('./services/scraper');
+const { runWebScraper, getScrapingStatus } = require('./services/scraper');
 const { populateRecipes } = require('./services/recipeScraper');
 const { estimateMacros }  = require('./services/macroEstimator');
 const Recipe              = require('./models/Recipe');
@@ -161,9 +161,27 @@ mongoose.connect(process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/smart_groce
   .catch(err => console.error('❌ MongoDB error:', err));
 
 // ── Background Jobs ───────────────────────────────────────────────────────────
-startCronJobs();
-const { startTrialReminderCron } = require('./services/trialReminder');
-startTrialReminderCron();
+/* There are none in the web process, deliberately.
+ *
+ * The daily scrape runs in GitHub Actions (.github/workflows/daily-scraper.yml),
+ * which is the only place it should run. Scheduling it here as well did three
+ * bad things at once on a free 512 MB Render instance: it launched Puppeteer in
+ * the process that serves reads, it burned free instance hours for as long as
+ * the scrape lasted — the account is shared by four services against a single
+ * 750 h/month pool — and it wrote the same rows the Actions run had already
+ * written.
+ *
+ * It also never actually worked. node-cron v4 hands the callback a task-context
+ * object, so `cron.schedule('20 8 * * *', runWebScraper)` called
+ * runWebScraper({...}) and died on `targetStore.toLowerCase is not a function`
+ * every morning at 08:20 UTC — visible in the Render logs for 2026-09-06.
+ *
+ * The trial-reminder cron went with it: this is a public read-only catalogue
+ * with no trials to remind anyone about.
+ *
+ * Manual runs are still available on /api/force-scrape and
+ * POST /api/prices/refresh, both behind CRON_SECRET.
+ */
 
 // ── Routes ────────────────────────────────────────────────────────────────────
 const authRoutes      = require('./routes/auth');
