@@ -27,7 +27,7 @@ const recipeSchema = new mongoose.Schema({
   // ── Categorization ──────────────────────────────────────────
   tags:         [{ type: String }],                      // e.g. ['breakfast','high-protein','quick']
   cuisine:      { type: String, default: 'Διεθνής' },    // e.g. 'Ελληνική', 'Ιταλική', 'Ασιατική'
-  category:     { type: String, default: 'Κυρίως' },     // Κυρίως, Σαλάτες, Σούπες, Σνακ, Επιδόρπια, Πρωινό
+  category:     { type: String, default: 'Κυρίως' },     // Κυρίως, Ορεκτικά, Ζυμαρικά, Σαλάτες, Σούπες, Σνακ, Συνοδευτικά, Επιδόρπια, Πρωινό, Ροφήματα
 
   // ── Source tracking ─────────────────────────────────────────
   sourceApi:    { type: String, default: 'spoonacular' },
