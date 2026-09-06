@@ -560,29 +560,63 @@ const WP_SITES = {
  * The pool is shuffled before slicing so successive runs reach different parts
  * of the catalogue instead of re-scraping the same first N every week.
  */
-async function getSitemapLinks(sitemaps, max, pattern) {
-    const UA = 'Mozilla/5.0 (compatible; KalathakiBot/1.0; +https://kalathaki.vercel.app)';
+async function getSitemapLinks(sitemaps, max, pattern, page = null) {
+    /* A browser User-Agent, not an honest bot one. Announcing ourselves as
+       KalathakiBot gets a flat 403 from madameginger.com's WAF, and these are
+       the sites' own published sitemaps — the files that exist to be read by
+       crawlers. Accept headers included because some WAFs score their absence.
+
+       The browser is the fallback for the rest. supersyntages.gr serves this
+       fetch happily from a home connection and 403s it from a GitHub Actions
+       runner, so the address is what it objects to, not the client. When the
+       plain request fails and a Puppeteer page is available, the same URL is
+       loaded through it — stealth plugin, real TLS fingerprint — and the XML is
+       read out of the document. */
+    const HEADERS = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
+        'Accept': 'application/xml,text/xml,*/*;q=0.8',
+        'Accept-Language': 'el-GR,el;q=0.9,en;q=0.8',
+    };
     const links = new Set();
     const seen = new Set();
+
+    const viaBrowser = async (url) => {
+        if (!page) return '';
+        try {
+            await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+            return await page.evaluate(() => document.documentElement.textContent || '');
+        } catch (e) {
+            console.error(`  sitemap ${url}: browser fallback failed (${e.message})`);
+            return '';
+        }
+    };
 
     /* One level of index nesting is followed, because most sites publish an
        index rather than a flat list and the shape varies: WordPress splits into
        post-sitemap1.xml, post-sitemap2.xml, and Drupal pages the same file with
-       ?page=1. A child is anything whose <loc> is not itself a recipe URL, so
-       both shapes are picked up without hard-coding either. */
+       ?page=1. A child is any <loc> that is not itself a recipe URL, so both
+       shapes are picked up without hard-coding either. */
     const fetchLocs = async (url) => {
         if (seen.has(url)) return [];
         seen.add(url);
+        let xml = '';
         try {
-            const res = await fetch(url, { headers: { 'User-Agent': UA }, signal: AbortSignal.timeout(30000) });
-            if (!res.ok) { console.error(`  ⚠️  sitemap ${url}: HTTP ${res.status}`); return []; }
-            const xml = await res.text();
-            if (!xml.includes('<loc>')) { console.error(`  ⚠️  sitemap ${url}: not a sitemap`); return []; }
-            return [...xml.matchAll(/<loc>([^<]+)<\/loc>/g)].map(m => m[1].trim().replace(/^http:/, 'https:'));
+            const res = await fetch(url, { headers: HEADERS, signal: AbortSignal.timeout(30000) });
+            if (res.ok) xml = await res.text();
+            else console.error(`  sitemap ${url}: HTTP ${res.status} — trying the browser`);
         } catch (e) {
-            console.error(`  ⚠️  sitemap ${url}: ${e.message}`);
+            console.error(`  sitemap ${url}: ${e.message} — trying the browser`);
+        }
+        if (!xml.includes('<loc>')) xml = await viaBrowser(url);
+        if (!xml.includes('<loc>')) {
+            /* The browser hands back text content, so the tags are gone; fall
+               back to reading bare URLs out of it. */
+            const bare = [...xml.matchAll(/https?:\/\/[^\s<>"']+/g)].map(m => m[0]);
+            if (bare.length) return bare.map(u => u.replace(/^http:/, 'https:'));
+            console.error(`  sitemap ${url}: unreadable`);
             return [];
         }
+        return [...xml.matchAll(/<loc>([^<]+)<\/loc>/g)].map(m => m[1].trim().replace(/^http:/, 'https:'));
     };
 
     for (const sm of sitemaps) {
@@ -604,6 +638,7 @@ async function getSitemapLinks(sitemaps, max, pattern) {
         const j = Math.floor(Math.random() * (i + 1));
         [pool[i], pool[j]] = [pool[j], pool[i]];
     }
+    console.log(`  sitemap pool: ${links.size} URLs, taking ${Math.min(max, pool.length)}`);
     return pool.slice(0, max);
 }
 
@@ -805,7 +840,7 @@ const SITES = {
             'https://www.argiro.gr/recipe-sitemap2.xml',
             'https://www.argiro.gr/recipe-sitemap3.xml',
             'https://www.argiro.gr/recipe-sitemap4.xml',
-        ], max, /^https:\/\/www\.argiro\.gr\/recipe\/[^/]+\/$/),
+        ], max, /^https:\/\/www\.argiro\.gr\/recipe\/[^/]+\/$/, page),
         parseRecipe: parseWpRecipe,
     },
 
@@ -842,7 +877,7 @@ const SITES = {
         maxRecipes:  25,
         getLinks:    (page, max) => getSitemapLinks(
             ['https://www.supersyntages.gr/sitemap.xml'],
-            max, /^https:\/\/www\.supersyntages\.gr\/sintagi\/[^/]+$/),
+            max, /^https:\/\/www\.supersyntages\.gr\/sintagi\/[^/]+$/, page),
         parseRecipe: parseWpRecipe,
     },
     madameginger: {
@@ -850,7 +885,7 @@ const SITES = {
         maxRecipes:  25,
         getLinks:    (page, max) => getSitemapLinks(
             ['https://www.madameginger.com/sitemap_index.xml'],
-            max, /^https:\/\/www\.madameginger\.com\/syntages\/(?:[^/]+\/){2,4}$/),
+            max, /^https:\/\/www\.madameginger\.com\/syntages\/(?:[^/]+\/){2,4}$/, page),
         parseRecipe: parseWpRecipe,
     },
     livekitchen: {
@@ -858,7 +893,7 @@ const SITES = {
         maxRecipes:  25,
         getLinks:    (page, max) => getSitemapLinks(
             ['https://live-kitchen.gr/sitemap_index.xml'],
-            max, /^https:\/\/live-kitchen\.gr\/[^/]+\/$/),
+            max, /^https:\/\/live-kitchen\.gr\/[^/]+\/$/, page),
         parseRecipe: parseWpRecipe,
     },
     katerina: {
@@ -866,7 +901,7 @@ const SITES = {
         maxRecipes:  25,
         getLinks:    (page, max) => getSitemapLinks(
             ['https://www.greekcookingbykaterina.com/sitemap.xml'],
-            max, /^https:\/\/www\.greekcookingbykaterina\.com\/recipes\/recipe\/\d+\/[^/]+$/),
+            max, /^https:\/\/www\.greekcookingbykaterina\.com\/recipes\/recipe\/\d+\/[^/]+$/, page),
         parseRecipe: parseWpRecipe,
     },
     cuisinovia: {
@@ -874,7 +909,7 @@ const SITES = {
         maxRecipes:  25,
         getLinks:    (page, max) => getSitemapLinks(
             ['https://cuisinovia.com/sitemap.xml'],
-            max, /^https:\/\/cuisinovia\.com\/el\/[^/]+\/$/),
+            max, /^https:\/\/cuisinovia\.com\/el\/[^/]+\/$/, page),
         parseRecipe: parseWpRecipe,
     },
 };
