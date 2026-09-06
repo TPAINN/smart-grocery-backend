@@ -1,6 +1,7 @@
 const { discountPct } = require('../lib/discountPct');
 const { galaxiasOffer } = require('../lib/galaxiasOffer');
 const { historyDiscount, MIN_DAYS } = require('../lib/historyDiscount');
+const { priceSanity } = require('../lib/priceSanity');
 
 /* "€1,10" / "1,10 €" / "1.10" -> 1.1. Greek prices use the comma as the decimal
    separator, so a plain parseFloat stops at the comma and returns 1. */
@@ -312,29 +313,47 @@ const extractDataInBrowser = (storeName, config) => {
                                       / τεμ\.\s*$/.test(txt.trim());
 
         if (storeName === 'MyMarket') {
-            // Primary: GA data attribute — clean float, most reliable
-            const gaLink = card.querySelector('a[data-google-analytics-item-param]');
-            if (gaLink) {
-                try {
-                    const gaData = JSON.parse(gaLink.getAttribute('data-google-analytics-item-param'));
-                    if (gaData && gaData.price) priceNum = parseFloat(gaData.price);
-                } catch(e) {}
+            /*
+             * The DISPLAYED price first, the analytics attribute only as a
+             * fallback — the reverse of what this used to do, and the reverse
+             * matters.
+             *
+             * For anything sold by weight, MyMarket's GA attribute holds the
+             * estimated price of ONE PIECE, not the shelf price. Verified on
+             * six products in their fruit-and-veg aisle, and the arithmetic is
+             * exact every time: onions show 0,79 €/kg with a ~120 g piece and
+             * report 0.0948, which is 0.79 x 0.120; carrots 0,99 with 120 g
+             * report 0.1188; cucumbers 1,69 with 180 g report 0.3042.
+             *
+             * Preferring that attribute stored nine-cent onions. It showed up
+             * as prices carrying more than two decimals — 12.8% of sampled
+             * MyMarket rows, and none at all from the other seven chains, which
+             * is what made it findable.
+             */
+            const wholeEl = card.querySelector('.teaser-display-price-whole');
+            const fracEl  = card.querySelector('.teaser-display-price-fraction');
+            if (wholeEl && fracEl) {
+                const whole = parseInt((wholeEl.textContent || '').trim(), 10) || 0;
+                const frac  = parseInt((fracEl.textContent  || '').trim(), 10) || 0;
+                const candidate = whole + frac / 100;
+                if (candidate > 0 && candidate < 999) priceNum = candidate;
             }
-            // Fallback: split whole + fraction (e.g. "1" + "29" → €1.29)
-            if (!priceNum) {
-                const wholeEl = card.querySelector('.teaser-display-price-whole');
-                const fracEl  = card.querySelector('.teaser-display-price-fraction');
-                if (wholeEl && fracEl) {
-                    const whole = parseInt((wholeEl.textContent || '').trim(), 10) || 0;
-                    const frac  = parseInt((fracEl.textContent  || '').trim(), 10) || 0;
-                    const candidate = whole + frac / 100;
-                    if (candidate > 0 && candidate < 999) priceNum = candidate;
-                }
-            }
-            // Fallback 2: full .teaser-display-price text (space-split parser handles "€ 1 29")
+            // The whole element on its own, when the fraction is absent.
             if (!priceNum) {
                 const priceEl = card.querySelector('.teaser-display-price');
                 if (priceEl) priceNum = parsePrice(priceEl.innerText || priceEl.textContent);
+            }
+            /* Last resort. Correct for anything sold by the package, wrong for
+               anything sold by weight, so it only runs when the rendered price
+               could not be read at all. */
+            if (!priceNum) {
+                const gaLink = card.querySelector('a[data-google-analytics-item-param]');
+                if (gaLink) {
+                    try {
+                        const gaData = JSON.parse(gaLink.getAttribute('data-google-analytics-item-param'));
+                        if (gaData && gaData.price) priceNum = parseFloat(gaData.price);
+                    } catch(e) {}
+                }
             }
         } else {
             const priceEl = card.querySelector(config.price) || card.querySelector('[class*="price"]');
@@ -1121,10 +1140,29 @@ async function scrapeTask({ page, data: { url, storeName } }) {
     if (finalProducts.length > 0) {
         const now = new Date();
         await applyHistoryDiscounts(finalProducts, storeName, now);
+
+        /* Last gate before anything is published. A price-comparison app that
+           shows a wrong price is worse than one that shows nothing, so a price
+           that fails is dropped and counted rather than rounded into looking
+           plausible — see lib/priceSanity.js for what that caught. */
+        const checked = [];
+        let rejected = 0;
+        for (const product of finalProducts) {
+            const ok = priceSanity(product);
+            if (!ok) { rejected++; continue; }
+            checked.push({ ...product, price: ok.price, oldPrice: ok.oldPrice });
+        }
+        if (rejected) {
+            console.warn(`  ⚠️  [${storeName}] ${rejected} προϊόντα με μη έγκυρη τιμή — δεν αποθηκεύτηκαν`);
+        }
+        if (!checked.length) {
+            console.warn(`  ⚠️  [${storeName}] καμία έγκυρη τιμή — τίποτα δεν αποθηκεύτηκε`);
+            return;
+        }
         /* Computed here, at the single point every chain's products pass
            through, so no extractor can forget it and no reader has to re-derive
            a number from the badge text. */
-        const bulkOps = finalProducts.map(product => ({
+        const bulkOps = checked.map(product => ({
             updateOne: {
                 filter: { normalizedName: product.normalizedName, supermarket: product.supermarket },
                 update: {
@@ -1149,7 +1187,7 @@ async function scrapeTask({ page, data: { url, storeName } }) {
         try {
             const PriceHistory = require('../models/PriceHistory');
             const day = now.toISOString().slice(0, 10);
-            const histOps = finalProducts
+            const histOps = checked
                 .filter(p => p.price > 0)
                 .map(p => ({
                     updateOne: {
