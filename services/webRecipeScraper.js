@@ -1,5 +1,6 @@
 // services/webRecipeScraper.js
-// Scrapes Greek recipe sites: Akis, Panos Ioannidis, GymBeam, Argiro
+// Scrapes Greek recipe sites: Akis, Panos Ioannidis, GymBeam, Argiro,
+// Super Συνταγές, Madame Ginger, Live Kitchen, Greek Cooking by Katerina, Cuisinovia
 // Uses Puppeteer (same install as grocery scraper — no extra deps needed)
 
 const puppeteer = require('puppeteer-extra');
@@ -9,6 +10,7 @@ puppeteer.use(StealthPlugin());
 const Recipe = require('../models/Recipe');
 const { estimateMacros } = require('./macroEstimator');
 const { recipeCategory } = require('../lib/recipeCategory.js');
+const { findRecipe, recipeSteps } = require('../lib/recipeJsonLd.js');
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -559,24 +561,44 @@ const WP_SITES = {
  * of the catalogue instead of re-scraping the same first N every week.
  */
 async function getSitemapLinks(sitemaps, max, pattern) {
+    const UA = 'Mozilla/5.0 (compatible; KalathakiBot/1.0; +https://kalathaki.vercel.app)';
     const links = new Set();
+    const seen = new Set();
+
+    /* One level of index nesting is followed, because most sites publish an
+       index rather than a flat list and the shape varies: WordPress splits into
+       post-sitemap1.xml, post-sitemap2.xml, and Drupal pages the same file with
+       ?page=1. A child is anything whose <loc> is not itself a recipe URL, so
+       both shapes are picked up without hard-coding either. */
+    const fetchLocs = async (url) => {
+        if (seen.has(url)) return [];
+        seen.add(url);
+        try {
+            const res = await fetch(url, { headers: { 'User-Agent': UA }, signal: AbortSignal.timeout(30000) });
+            if (!res.ok) { console.error(`  ⚠️  sitemap ${url}: HTTP ${res.status}`); return []; }
+            const xml = await res.text();
+            if (!xml.includes('<loc>')) { console.error(`  ⚠️  sitemap ${url}: not a sitemap`); return []; }
+            return [...xml.matchAll(/<loc>([^<]+)<\/loc>/g)].map(m => m[1].trim().replace(/^http:/, 'https:'));
+        } catch (e) {
+            console.error(`  ⚠️  sitemap ${url}: ${e.message}`);
+            return [];
+        }
+    };
+
     for (const sm of sitemaps) {
         if (links.size >= max * 6) break;   // enough to shuffle from
-        try {
-            const res = await fetch(sm, {
-                headers: { 'User-Agent': 'Mozilla/5.0 (compatible; KalathakiBot/1.0; +https://kalathaki.vercel.app)' },
-                signal: AbortSignal.timeout(30000),
-            });
-            if (!res.ok) { console.error(`  ⚠️  sitemap ${sm}: HTTP ${res.status}`); continue; }
-            const xml = await res.text();
-            for (const m of xml.matchAll(/<loc>([^<]+)<\/loc>/g)) {
-                const u = m[1].trim().replace(/^http:/, 'https:');
-                if (pattern.test(u)) links.add(u);
-            }
-        } catch (e) {
-            console.error(`  ⚠️  sitemap ${sm}: ${e.message}`);
+        const locs = await fetchLocs(sm);
+        const children = [];
+        for (const u of locs) {
+            if (pattern.test(u)) links.add(u);
+            else if (/\.xml/i.test(u) || /sitemap/i.test(u)) children.push(u);
+        }
+        for (const child of children) {
+            if (links.size >= max * 6) break;
+            for (const u of await fetchLocs(child)) if (pattern.test(u)) links.add(u);
         }
     }
+
     const pool = [...links];
     for (let i = pool.length - 1; i > 0; i--) {
         const j = Math.floor(Math.random() * (i + 1));
@@ -621,37 +643,45 @@ async function getWpLinks(page, siteKey, max) {
 async function parseWpRecipe(page, url) {
     await page.goto(url, { waitUntil: 'networkidle2', timeout: 30000 });
 
+    /* The JSON-LD is read out of the page as raw text and parsed here in Node
+       rather than inside page.evaluate, so the parsing itself can be unit
+       tested — see lib/recipeJsonLd.js. It used to be four inline lines whose
+       silent catch cost us two entire sites: their plugins emit a raw newline
+       inside a JSON string, JSON.parse throws, and the catch reported the page
+       as having no recipe. */
+    const ldTexts = await page.$$eval(
+        'script[type="application/ld+json"]',
+        els => els.map(e => e.textContent),
+    ).catch(() => []);
+    const recipe = findRecipe(ldTexts);
+
+    if (recipe && (recipe.recipeIngredient?.length || recipe.recipeInstructions?.length)) {
+        const strip = s => String(s ?? '').replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ').trim();
+        const nutri = recipe.nutrition || {};
+        const meta = await page.evaluate(() => ({
+            ogImage:    document.querySelector('meta[property="og:image"]')?.content || '',
+            entryTitle: document.querySelector('.entry-title')?.innerText?.trim() || '',
+        })).catch(() => ({ ogImage: '', entryTitle: '' }));
+        return {
+            title:        strip(recipe.name) || meta.entryTitle,
+            description:  strip(recipe.description).substring(0, 300),
+            image:        meta.ogImage || (Array.isArray(recipe.image) ? recipe.image[0] : recipe.image?.url || recipe.image || ''),
+            servings:     parseInt(recipe.recipeYield) || 4,
+            timeRaw:      recipe.totalTime || recipe.cookTime || recipe.prepTime,
+            ingredients:  (recipe.recipeIngredient || []).map(strip).filter(Boolean),
+            instructions: recipeSteps(recipe.recipeInstructions).filter(s => s.length > 5),
+            cuisine:      recipe.recipeCuisine || '',
+            keywords:     Array.isArray(recipe.keywords) ? recipe.keywords : String(recipe.keywords || '').split(',').map(k => k.trim()).filter(Boolean),
+            calories: parseFloat(nutri.calories)            || null,
+            protein:  parseFloat(nutri.proteinContent)      || null,
+            carbs:    parseFloat(nutri.carbohydrateContent) || null,
+            fat:      parseFloat(nutri.fatContent)          || null,
+            fiber:    parseFloat(nutri.fiberContent)        || null,
+        };
+    }
+
     return page.evaluate(() => {
         const clean = s => (s || '').replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ').trim();
-
-        // ── Try JSON-LD first (sites with a recipe plugin emit this) ─────────
-        const allLd = [...document.querySelectorAll('script[type="application/ld+json"]')]
-            .map(s => { try { return JSON.parse(s.textContent); } catch { return null; } })
-            .filter(Boolean);
-
-        const recipe = allLd.find(l => l['@type'] === 'Recipe')
-            || allLd.flatMap(l => l['@graph'] || []).find(n => n['@type'] === 'Recipe');
-
-        if (recipe && (recipe.recipeIngredient?.length || recipe.recipeInstructions?.length)) {
-            const nutri = recipe.nutrition || {};
-            const ogImg2 = document.querySelector('meta[property="og:image"]')?.content;
-            return {
-                title:        clean(recipe.name) || document.querySelector('.entry-title')?.innerText?.trim(),
-                description:  clean(recipe.description).substring(0, 300),
-                image:        ogImg2 || (Array.isArray(recipe.image) ? recipe.image[0] : recipe.image?.url || recipe.image || ''),
-                servings:     parseInt(recipe.recipeYield) || 4,
-                timeRaw:      recipe.totalTime || recipe.cookTime || recipe.prepTime,
-                ingredients:  (recipe.recipeIngredient || []).map(clean).filter(Boolean),
-                instructions: (recipe.recipeInstructions || []).map(s => clean(s.text || s)).filter(s => s.length > 5),
-                cuisine:      recipe.recipeCuisine || '',
-                keywords:     Array.isArray(recipe.keywords) ? recipe.keywords : String(recipe.keywords || '').split(',').map(k => k.trim()).filter(Boolean),
-                calories: parseFloat(nutri.calories)            || null,
-                protein:  parseFloat(nutri.proteinContent)      || null,
-                carbs:    parseFloat(nutri.carbohydrateContent) || null,
-                fat:      parseFloat(nutri.fatContent)          || null,
-                fiber:    parseFloat(nutri.fiberContent)        || null,
-            };
-        }
 
         // ── Elementor / generic WP fallback ──────────────────────────────────
         // Title: prefer .entry-title, fall back to document.title (strip site name)
@@ -776,6 +806,75 @@ const SITES = {
             'https://www.argiro.gr/recipe-sitemap3.xml',
             'https://www.argiro.gr/recipe-sitemap4.xml',
         ], max, /^https:\/\/www\.argiro\.gr\/recipe\/[^/]+\/$/),
+        parseRecipe: parseWpRecipe,
+    },
+
+    /*
+     * Five sources added 2026-09-07, all of them chosen the same way: sample a
+     * dozen real recipe pages and check that the schema.org Recipe block the
+     * generic parser reads is actually there, rather than trusting that a
+     * well-known name implies clean markup. Measured on the day:
+     *
+     *   supersyntages          1.804 recipes   12/12 pages parsed
+     *   madameginger           1.242           10/12
+     *   live-kitchen             970            7/12
+     *   greekcookingbykaterina   345           12/12
+     *   cuisinovia               257           12/12
+     *
+     * Two of them only work because of the JSON-LD repair in lib/recipeJsonLd:
+     * madameginger and greekcookingbykaterina both emit a raw newline inside a
+     * JSON string, which JSON.parse rejects outright. Before that fix they read
+     * as sites with no recipes at all.
+     *
+     * Sites that looked obvious and were rejected on the same evidence, so they
+     * are not tried again: gastronomos.gr (sitemap lists tips, not recipes),
+     * sintagespareas.gr (now redirects to Cookpad), chefoulis.gr, nostimada.gr,
+     * sintagoulis.gr, kitchenlab.gr, foodstates.gr, thefoodiecorner.gr and
+     * missanna.gr (no recipe markup of any kind in a 12-page sample);
+     * giorgostsoulis.com publishes microdata rather than JSON-LD, which this
+     * parser does not read.
+     *
+     * 25 each rather than 60: the run already loads about 200 pages for the
+     * four original sites, and the workflow has 90 minutes.
+     */
+    supersyntages: {
+        label:       'Super Συνταγές',
+        maxRecipes:  25,
+        getLinks:    (page, max) => getSitemapLinks(
+            ['https://www.supersyntages.gr/sitemap.xml'],
+            max, /^https:\/\/www\.supersyntages\.gr\/sintagi\/[^/]+$/),
+        parseRecipe: parseWpRecipe,
+    },
+    madameginger: {
+        label:       'Madame Ginger',
+        maxRecipes:  25,
+        getLinks:    (page, max) => getSitemapLinks(
+            ['https://www.madameginger.com/sitemap_index.xml'],
+            max, /^https:\/\/www\.madameginger\.com\/syntages\/(?:[^/]+\/){2,4}$/),
+        parseRecipe: parseWpRecipe,
+    },
+    livekitchen: {
+        label:       'Live Kitchen',
+        maxRecipes:  25,
+        getLinks:    (page, max) => getSitemapLinks(
+            ['https://live-kitchen.gr/sitemap_index.xml'],
+            max, /^https:\/\/live-kitchen\.gr\/[^/]+\/$/),
+        parseRecipe: parseWpRecipe,
+    },
+    katerina: {
+        label:       'Greek Cooking by Katerina',
+        maxRecipes:  25,
+        getLinks:    (page, max) => getSitemapLinks(
+            ['https://www.greekcookingbykaterina.com/sitemap.xml'],
+            max, /^https:\/\/www\.greekcookingbykaterina\.com\/recipes\/recipe\/\d+\/[^/]+$/),
+        parseRecipe: parseWpRecipe,
+    },
+    cuisinovia: {
+        label:       'Cuisinovia',
+        maxRecipes:  25,
+        getLinks:    (page, max) => getSitemapLinks(
+            ['https://cuisinovia.com/sitemap.xml'],
+            max, /^https:\/\/cuisinovia\.com\/el\/[^/]+\/$/),
         parseRecipe: parseWpRecipe,
     },
 };
