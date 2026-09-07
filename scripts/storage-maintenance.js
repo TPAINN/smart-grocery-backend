@@ -31,6 +31,7 @@
  * Requires MONGO_URI in the environment. Never printed, never logged.
  */
 const mongoose = require('mongoose');
+const { scrapeLooksHealthy } = require('../lib/scrapeHealth.js');
 
 const argv = process.argv.slice(2);
 const has = (f) => argv.includes(`--${f}`);
@@ -283,6 +284,20 @@ const QUOTA_MB = 512;
       { $sort: { total: -1 } },
     ]).toArray();
 
+    /* A census of every recent run, straight out of pricehistories: it keeps
+       one row per product per chain per day, so counting rows per day counts
+       what that run found. This is what separates a broken scrape from a chain
+       that simply sells fewer things — see lib/scrapeHealth.js. */
+    const census = new Map();
+    for (const row of await db.collection('pricehistories').aggregate([
+      { $group: { _id: { chain: '$supermarket', day: '$day' }, n: { $sum: 1 } } },
+      { $sort: { '_id.day': -1 } },
+    ]).toArray()) {
+      const list = census.get(row._id.chain) || [];
+      list.push(row.n);
+      census.set(row._id.chain, list);
+    }
+
     console.log(`\n── Delisted sweep (older than ${STALE_DAYS} days) ────────`);
     let removedTotal = 0;
     for (const c of chains) {
@@ -295,18 +310,22 @@ const QUOTA_MB = 512;
         continue;
       }
       if (stale === 0) { console.log(`  ${label} nothing stale`); continue; }
-      const share = stale / c.total;
-      if (share > 0.4) {
-        console.log(`  ${label} SKIP — ${stale}/${c.total} (${(share * 100).toFixed(0)}%) looks like a partial scrape, not delisting`);
+
+      const days = census.get(chain) || [];
+      const verdict = scrapeLooksHealthy({ newest: days[0], history: days.slice(1) });
+      if (!verdict.healthy) {
+        console.log(`  ${label} SKIP — ${verdict.reason}`);
         continue;
       }
+
+      const share = stale / c.total;
       if (!CONFIRM) {
-        console.log(`  ${label} would remove ${stale} of ${c.total} (${(share * 100).toFixed(0)}%)`);
+        console.log(`  ${label} would remove ${stale} of ${c.total} (${(share * 100).toFixed(0)}%) — ${verdict.reason}`);
         continue;
       }
       const r = await products.deleteMany({ supermarket: chain, dateScraped: { $lt: cutoff } });
       removedTotal += r.deletedCount;
-      console.log(`  ${label} removed ${r.deletedCount} of ${c.total}`);
+      console.log(`  ${label} removed ${r.deletedCount} of ${c.total} — ${verdict.reason}`);
     }
     console.log(CONFIRM
       ? `\n  removed ${removedTotal} delisted rows`
