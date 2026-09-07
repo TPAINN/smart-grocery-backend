@@ -82,6 +82,17 @@ test('prose is a fallback, and only for the words that name a category', () => {
   );
 });
 
+test('a word boundary that survives being written down', () => {
+  /* This regex was written as a JS word boundary and reached the file as a
+     literal backspace character, so it matched nothing at all — the same
+     transport corruption that has bitten parseIngredient and recipeStep, which
+     is why test/scraper-config.test.js scans every source file for stray
+     control characters. It is also the wrong tool regardless: JS defines a word
+     boundary over [A-Za-z0-9_], so it never marks one beside a Greek letter. */
+  assert.equal(recipeCategory({ title: 'Dip με τυρί κρέμα' }), 'Ορεκτικά');
+  assert.equal(recipeCategory({ title: 'Καραμελωμένο dipping' }), 'Κυρίως');
+});
+
 test('a soup word inside another dish name is not a soup', () => {
   // «σουπιά» is cuttlefish. It was filed under Σούπες.
   assert.equal(recipeCategory({ title: 'Σουπιά στο φούρνο με πιπεριές' }), 'Κυρίως');
