@@ -25,6 +25,7 @@ dns.setServers(['1.1.1.1', '1.0.0.1', '8.8.8.8']);
 
 const mongoose = require('mongoose');
 const { runWebScraper, savedPerStore } = require('./services/scraper');
+const { delistedPlan, unsellableIds } = require('./lib/catalogueSweep.js');
 
 // ─── Set scraper profile (respect env var so GitHub Actions can pass 'github') ──
 // Workflow env: SCRAPER_PROFILE=github  → no --single-process (7GB RAM, full Chrome)
@@ -86,6 +87,59 @@ log.info(`  Started at  : ${ts()}`);
 log.info('══════════════════════════════════════════════════════');
 log.mem();
 
+/* Kept next to the runner rather than in the scraper: it is a property of a
+   completed run over every chain, not of scraping one of them. */
+const STALE_DAYS = Number(process.env.DELIST_STALE_DAYS || 30);
+
+async function sweepCatalogue() {
+    const db = mongoose.connection.db;
+    const products = db.collection('products');
+    const cutoff = new Date(Date.now() - STALE_DAYS * 86_400_000);
+
+    const census = new Map();
+    for (const row of await db.collection('pricehistories').aggregate([
+        { $group: { _id: { chain: '$supermarket', day: '$day' }, n: { $sum: 1 } } },
+        { $sort: { '_id.day': -1 } },
+    ]).toArray()) {
+        const list = census.get(row._id.chain) || [];
+        list.push(row.n);
+        census.set(row._id.chain, list);
+    }
+
+    const chains = [];
+    for (const c of await products.aggregate([
+        { $group: { _id: '$supermarket', total: { $sum: 1 }, newest: { $max: '$dateScraped' } } },
+    ]).toArray()) {
+        chains.push({
+            chain: c._id,
+            total: c.total,
+            lastScraped: c.newest,
+            stale: await products.countDocuments({ supermarket: c._id, dateScraped: { $lt: cutoff } }),
+        });
+    }
+
+    log.info(`── Delisted sweep (not listed in ${STALE_DAYS} days) ────`);
+    let removed = 0;
+    for (const p of delistedPlan({ chains, census })) {
+        const label = String(p.chain ?? '(none)').padEnd(22);
+        if (!p.remove) { log.info(`  ${label} skip — ${p.reason}`); continue; }
+        const r = await products.deleteMany({ supermarket: p.chain, dateScraped: { $lt: cutoff } });
+        removed += r.deletedCount;
+        log.info(`  ${label} removed ${r.deletedCount} of ${p.total} — ${p.reason}`);
+    }
+
+    const rows = await products.find({}, { projection: { price: 1, oldPrice: 1 } }).toArray();
+    const doomed = unsellableIds(rows);
+    if (doomed.length) {
+        const r = await products.deleteMany({ _id: { $in: doomed } });
+        removed += r.deletedCount;
+        log.info(`  unsellable prices    removed ${r.deletedCount} of ${rows.length}`);
+    } else {
+        log.info(`  unsellable prices    none among ${rows.length}`);
+    }
+    log.info(`  swept ${removed} rows in total`);
+}
+
 (async () => {
 
     // ── Step 1: Connect to MongoDB ────────────────────────────────────────────
@@ -130,6 +184,26 @@ log.mem();
             log.err(`Chains that saved nothing: ${empty.join(', ')}`);
             log.err('Their prices in the app are now stale. Failing the run so this is visible.');
             await shutdown(1);
+        }
+
+        /* Housekeeping, only after a run that proved itself above.
+         *
+         * Two ways a stored product stops being true, and neither heals on its
+         * own. A price this scraper would refuse to write today survives if it
+         * was written before that check existed — three MyMarket rows still
+         * carried the four-decimal per-piece estimate six weeks on. And a
+         * product a chain no longer lists keeps whatever price it had when we
+         * last saw it: Lidl shows about 220 items at a time, the collection had
+         * grown to 2,421, and three quarters of what the app served for Lidl
+         * had not been on a shelf in a month, the oldest since April.
+         *
+         * Both are decided in lib/catalogueSweep.js, which is tested, and a
+         * chain whose own run looks thin against its recent history is skipped
+         * rather than emptied. */
+        try {
+            await sweepCatalogue();
+        } catch (err) {
+            log.err(`Catalogue sweep failed: ${err.message}`);
         }
 
         log.ok(`All stores scraped successfully in ${elapsed} min.`);

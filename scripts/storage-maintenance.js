@@ -31,7 +31,7 @@
  * Requires MONGO_URI in the environment. Never printed, never logged.
  */
 const mongoose = require('mongoose');
-const { scrapeLooksHealthy } = require('../lib/scrapeHealth.js');
+const { delistedPlan, unsellableIds } = require('../lib/catalogueSweep.js');
 
 const argv = process.argv.slice(2);
 const has = (f) => argv.includes(`--${f}`);
@@ -284,10 +284,10 @@ const QUOTA_MB = 512;
       { $sort: { total: -1 } },
     ]).toArray();
 
-    /* A census of every recent run, straight out of pricehistories: it keeps
-       one row per product per chain per day, so counting rows per day counts
-       what that run found. This is what separates a broken scrape from a chain
-       that simply sells fewer things — see lib/scrapeHealth.js. */
+    /* pricehistories keeps one row per product per chain per day, so counting
+       its rows per day counts what each run found. That census is what tells a
+       broken scrape apart from a chain that simply sells fewer things — see
+       lib/catalogueSweep.js, which holds the decision and is tested. */
     const census = new Map();
     for (const row of await db.collection('pricehistories').aggregate([
       { $group: { _id: { chain: '$supermarket', day: '$day' }, n: { $sum: 1 } } },
@@ -298,34 +298,44 @@ const QUOTA_MB = 512;
       census.set(row._id.chain, list);
     }
 
-    console.log(`\n── Delisted sweep (older than ${STALE_DAYS} days) ────────`);
-    let removedTotal = 0;
+    const withStale = [];
     for (const c of chains) {
-      const chain = c._id;
-      const stale = await products.countDocuments({ supermarket: chain, dateScraped: { $lt: cutoff } });
-      const label = String(chain ?? '(none)').padEnd(22);
+      withStale.push({
+        chain: c._id,
+        total: c.total,
+        lastScraped: c.newest,
+        stale: await products.countDocuments({ supermarket: c._id, dateScraped: { $lt: cutoff } }),
+      });
+    }
 
-      if (!c.newest || new Date(c.newest) < recent) {
-        console.log(`  ${label} SKIP — last scraped ${c.newest ? new Date(c.newest).toISOString().slice(0, 10) : 'never'}, not proven healthy`);
-        continue;
-      }
-      if (stale === 0) { console.log(`  ${label} nothing stale`); continue; }
-
-      const days = census.get(chain) || [];
-      const verdict = scrapeLooksHealthy({ newest: days[0], history: days.slice(1) });
-      if (!verdict.healthy) {
-        console.log(`  ${label} SKIP — ${verdict.reason}`);
-        continue;
-      }
-
-      const share = stale / c.total;
+    console.log(`
+── Delisted sweep (older than ${STALE_DAYS} days) ────────`);
+    let removedTotal = 0;
+    for (const p of delistedPlan({ chains: withStale, census })) {
+      const label = String(p.chain ?? '(none)').padEnd(22);
+      if (!p.remove) { console.log(`  ${label} SKIP — ${p.reason}`); continue; }
+      const share = ((p.stale / p.total) * 100).toFixed(0);
       if (!CONFIRM) {
-        console.log(`  ${label} would remove ${stale} of ${c.total} (${(share * 100).toFixed(0)}%) — ${verdict.reason}`);
+        console.log(`  ${label} would remove ${p.stale} of ${p.total} (${share}%) — ${p.reason}`);
         continue;
       }
-      const r = await products.deleteMany({ supermarket: chain, dateScraped: { $lt: cutoff } });
+      const r = await products.deleteMany({ supermarket: p.chain, dateScraped: { $lt: cutoff } });
       removedTotal += r.deletedCount;
-      console.log(`  ${label} removed ${r.deletedCount} of ${c.total} — ${verdict.reason}`);
+      console.log(`  ${label} removed ${r.deletedCount} of ${p.total} — ${p.reason}`);
+    }
+
+    /* A price we would refuse to write today must not survive because it was
+       written before the check existed. */
+    const rows = await products.find({}, { projection: { price: 1, oldPrice: 1 } }).toArray();
+    const doomed = unsellableIds(rows);
+    console.log(`
+── Unsellable prices ────────`);
+    if (!doomed.length) console.log(`  none among ${rows.length} products`);
+    else if (!CONFIRM) console.log(`  would remove ${doomed.length} of ${rows.length} products`);
+    else {
+      const r = await products.deleteMany({ _id: { $in: doomed } });
+      removedTotal += r.deletedCount;
+      console.log(`  removed ${r.deletedCount} of ${rows.length} products`);
     }
     console.log(CONFIRM
       ? `\n  removed ${removedTotal} delisted rows`
