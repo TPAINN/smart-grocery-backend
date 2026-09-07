@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { findRecipe, recipeSteps, repairJsonLd } = require('../lib/recipeJsonLd.js');
+const { findRecipe, recipeSteps, repairJsonLd, recipeImage } = require('../lib/recipeJsonLd.js');
 
 /*
  * Reading the schema.org Recipe block off a page.
@@ -90,4 +90,53 @@ test('html inside a step is stripped and empties are dropped', () => {
 test('malformed instructions yield an empty list rather than throwing', () => {
   assert.deepEqual(recipeSteps(null), []);
   assert.deepEqual(recipeSteps('Ένα μόνο βήμα που είναι αρκετά μεγάλο'), ['Ένα μόνο βήμα που είναι αρκετά μεγάλο']);
+});
+
+/*
+ * Which picture to show, and what to do when the page lies about it.
+ *
+ * The parser preferred the page's og:image over the recipe's own. On two Argiro
+ * pages og:image is the literal string "http://8624" — a WordPress attachment
+ * id where a URL should be — and it won over a perfectly good JSON-LD image,
+ * so both recipes were stored pointing at a host that does not exist. Verified
+ * live: argiro.gr/recipe/tourta-me-frouta/ has
+ * image "https://www.argiro.gr/wp-content/uploads/2023/10/tourta-giaourti-2.jpg"
+ * and og:image "http://8624".
+ *
+ * og:image is a page-level social preview; recipeImage is the dish. The dish
+ * wins, and anything that is not an https URL is not a picture.
+ */
+
+test('the recipe picture beats the page preview', () => {
+  assert.equal(
+    recipeImage({ image: 'https://a.gr/dish.jpg' }, 'https://a.gr/social.png'),
+    'https://a.gr/dish.jpg',
+  );
+});
+
+test('a page preview that is not a URL is discarded, not stored', () => {
+  // Exactly the Argiro shape.
+  assert.equal(recipeImage({ image: 'https://www.argiro.gr/x.jpg' }, 'http://8624'), 'https://www.argiro.gr/x.jpg');
+  assert.equal(recipeImage({}, 'http://8624'), '');
+  assert.equal(recipeImage({ image: 'http://8624' }, ''), '');
+});
+
+test('the preview is used when the recipe carries no picture', () => {
+  assert.equal(recipeImage({}, 'https://a.gr/social.png'), 'https://a.gr/social.png');
+  assert.equal(recipeImage(null, 'https://a.gr/social.png'), 'https://a.gr/social.png');
+});
+
+test('every shape schema.org allows for an image is read', () => {
+  assert.equal(recipeImage({ image: ['https://a.gr/1.jpg', 'https://a.gr/2.jpg'] }), 'https://a.gr/1.jpg');
+  assert.equal(recipeImage({ image: { url: 'https://a.gr/o.jpg' } }), 'https://a.gr/o.jpg');
+  assert.equal(recipeImage({ image: [{ url: 'https://a.gr/n.jpg' }] }), 'https://a.gr/n.jpg');
+});
+
+test('insecure and malformed values never become an image', () => {
+  // The proxy would refuse them anyway; storing them wastes a card either way.
+  assert.equal(recipeImage({ image: 'http://a.gr/x.jpg' }), '');
+  assert.equal(recipeImage({ image: '/relative/x.jpg' }), '');
+  assert.equal(recipeImage({ image: 8624 }), '');
+  assert.equal(recipeImage({ image: {} }), '');
+  assert.equal(recipeImage({ image: [] }), '');
 });

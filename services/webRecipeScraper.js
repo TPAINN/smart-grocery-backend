@@ -10,7 +10,7 @@ puppeteer.use(StealthPlugin());
 const Recipe = require('../models/Recipe');
 const { estimateMacros } = require('./macroEstimator');
 const { recipeCategory } = require('../lib/recipeCategory.js');
-const { findRecipe, recipeSteps } = require('../lib/recipeJsonLd.js');
+const { findRecipe, recipeSteps, recipeImage } = require('../lib/recipeJsonLd.js');
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -648,7 +648,7 @@ async function parseWpRecipe(page, url) {
         return {
             title:        strip(recipe.name) || meta.entryTitle,
             description:  strip(recipe.description).substring(0, 300),
-            image:        meta.ogImage || (Array.isArray(recipe.image) ? recipe.image[0] : recipe.image?.url || recipe.image || ''),
+            image:        recipeImage(recipe, meta.ogImage),
             servings:     parseInt(recipe.recipeYield) || 4,
             timeRaw:      recipe.totalTime || recipe.cookTime || recipe.prepTime,
             ingredients:  (recipe.recipeIngredient || []).map(strip).filter(Boolean),
