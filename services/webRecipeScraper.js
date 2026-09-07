@@ -1162,9 +1162,12 @@ async function enforceRecipeCap(cap = RECIPE_CAP) {
  * @returns {Promise<{moved: number, total: number}>}
  */
 async function recategorizeStored() {
-    // The title is the only hint the classifier reads, so it is the only field
-    // this needs.
-    const all = await Recipe.find({}, { title: 1, category: 1 }).lean();
+    /* Title AND description. The classifier reads the title first and falls
+       back to the description, so projecting the title alone quietly disabled
+       half of it: the re-file that ran without this line put 220 of 368
+       recipes in Κυρίως and left Ορεκτικά with 8, against 161 and 19 when
+       the same catalogue is classified with both fields present. */
+    const all = await Recipe.find({}, { title: 1, description: 1, category: 1 }).lean();
     const ops = [];
     const moves = new Map();
     for (const r of all) {
