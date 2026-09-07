@@ -5,6 +5,26 @@ const Recipe  = require('../models/Recipe');
 const { populateRecipes, seedRecipes } = require('../services/recipeScraper');
 const { scrapeWebRecipes, SITES }      = require('../services/webRecipeScraper');
 
+/* The response shape and the sort semantics deliberately match the Vercel
+   function in smart-grocery-frontend/api/recipes.js and its _lib/recipe-sort.js,
+   so a fallback to this service is invisible to the client rather than a
+   differently ordered, differently shaped catalogue.
+
+   Both rules there apply here. Every ordering ends on _id, because two recipes
+   written in the same millisecond have no defined order and MongoDB may resolve
+   it differently for page 1 and page 2, repeating some rows and skipping
+   others. And an ascending sort over a nullable field excludes what it cannot
+   rank: 50 of 379 recipes carry no time, since GymBeam publishes a reading time
+   and nothing else, and null sorts before every number — so «Γρήγορες» used
+   to open on ten recipes of unknown length. */
+const RECIPE_SORTS = {
+  newest:   { sort: { createdAt: -1, _id: 1 } },
+  quick:    { sort: { time: 1, _id: 1 },      require: 'time' },
+  calories: { sort: { calories: 1, _id: 1 },  require: 'calories' },
+  protein:  { sort: { protein: -1, _id: 1 } },
+  popular:  { sort: { protein: -1, calories: 1, _id: 1 } },
+};
+
 // ── GET /api/recipes — Paginated + filterable recipe list ─────────────────────
 router.get('/', async (req, res) => {
   try {
@@ -38,22 +58,38 @@ router.get('/', async (req, res) => {
       }
     }
 
-    let sortObj = { createdAt: -1 };
-    if (sort === 'quick')    sortObj = { time: 1 };
-    if (sort === 'protein')  sortObj = { protein: -1 };
-    if (sort === 'calories') sortObj = { calories: 1 };
-    if (sort === 'popular')  sortObj = { protein: -1, calories: 1 };
+    const spec = Object.prototype.hasOwnProperty.call(RECIPE_SORTS, sort)
+      ? RECIPE_SORTS[sort] : RECIPE_SORTS.newest;
+    if (spec.require) filter[spec.require] = { $gt: 0 };
     // When full-text searching, rank by relevance score first
-    if (filter.$text) sortObj = { score: { $meta: 'textScore' }, ...sortObj };
+    const sortObj = filter.$text
+      ? { score: { $meta: 'textScore' }, ...spec.sort }
+      : { ...spec.sort };
 
-    const [recipes, total] = await Promise.all([
+    /* The category counts are part of the response because the client builds
+       its filter chips from them; without them a fallback to this service
+       leaves the rail empty. The chain's own category filter is dropped from
+       the facet so choosing one does not delete every other chip. */
+    const facetFilter = { ...filter };
+    delete facetFilter.category;
+
+    const [recipes, total, categories] = await Promise.all([
       Recipe.find(filter, filter.$text ? { score: { $meta: 'textScore' } } : {})
         .select('-__v')
         .sort(sortObj).skip((page - 1) * limit).limit(limit).lean(),
       Recipe.countDocuments(filter),
+      Recipe.aggregate([
+        { $match: facetFilter },
+        { $group: { _id: '$category', count: { $sum: 1 } } },
+        { $match: { _id: { $type: 'string', $ne: '' } } },
+        { $sort: { count: -1, _id: 1 } },
+      ]),
     ]);
 
-    res.json({ recipes, total, page, pages: Math.ceil(total / limit) });
+    res.json({
+      recipes, total, page, pages: Math.ceil(total / limit),
+      categories: categories.map(c => ({ name: c._id, count: c.count })),
+    });
   } catch (err) {
     console.error('❌ GET /api/recipes error:', err.message);
     res.status(500).json({ message: 'Σφάλμα φόρτωσης συνταγών.' });
@@ -81,13 +117,16 @@ router.get('/sources', async (req, res) => {
       { $group: { _id: '$sourceApi', count: { $sum: 1 }, latest: { $max: '$createdAt' } } },
       { $sort: { count: -1 } },
     ]);
-    const sourceLabels = {
-      spoonacular: 'Spoonacular API',
-      akis:        'Άκης Πετρετζίκης',
-      panos:       'Πάνος Ιωαννίδης',
-      gymbeam:     'GymBeam',
-      nutriroots:  'NutriRoots',
-    };
+    /* Derived from SITES rather than repeated here. The second copy had gone
+       stale: it still named NutriRoots, dropped years ago, and knew none of the
+       six sources added since — so those appeared in the UI under their raw key
+       ("supersyntages") instead of their name. Only sources that no longer have
+       a SITES entry need a literal. */
+    const sourceLabels = Object.fromEntries(
+      Object.entries(SITES).map(([key, cfg]) => [key, cfg.label]),
+    );
+    sourceLabels.spoonacular = 'Spoonacular API';
+    sourceLabels.nutriroots  = 'NutriRoots';
     res.json({
       sources: counts.map(c => ({ key: c._id, label: sourceLabels[c._id] || c._id, count: c.count, latest: c.latest })),
       availableSites: Object.entries(SITES).map(([key, cfg]) => ({ key, label: cfg.label, maxRecipes: cfg.maxRecipes })),

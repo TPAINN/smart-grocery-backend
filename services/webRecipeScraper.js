@@ -532,25 +532,6 @@ async function parseGymBeamRecipe(page, url) {
     });
 }
 
-// ── SITE 4: NutriRoots (WordPress) ────────────────────────────────────────────
-// Strategy: JSON-LD when available (WP Recipe plugins emit it), DOM fallback
-// Listing page: /recipes/  —  recipe URLs: /συνταγές/slug/
-
-const WP_SITES = {
-    nutriroots: {
-        label: 'NutriRoots',
-        listUrls: ['https://www.nutriroots.gr/recipes/'],
-        // Recipe links are under /συνταγές/ (URL-encoded %cf%83%cf%85%ce%bd%cf%84%ce%b1%ce%b3%ce%ad%cf%82)
-        linkSelector: 'a[href*="nutriroots.gr"]',
-        linkFilter: h => h.includes('nutriroots.gr/')
-                      && (h.includes('%cf%83%cf%85%ce%bd%cf%84%ce%b1%ce%b3') || h.includes('/συνταγές/'))
-                      && !h.endsWith('/recipes/')
-                      && !h.includes('/category/')
-                      && !h.includes('/tag/')
-                      && !h.includes('/page/'),
-    },
-};
-
 /*
  * Link collection from a site's own sitemap rather than by crawling listing
  * pages. Argiro publishes four recipe sitemaps holding roughly 3,500 URLs, so
@@ -640,39 +621,6 @@ async function getSitemapLinks(sitemaps, max, pattern, page = null) {
     }
     console.log(`  sitemap pool: ${links.size} URLs, taking ${Math.min(max, pool.length)}`);
     return pool.slice(0, max);
-}
-
-async function getWpLinks(page, siteKey, max) {
-    const cfg = WP_SITES[siteKey];
-    const links = new Set();
-
-    for (const listUrl of cfg.listUrls) {
-        if (links.size >= max) break;
-        try {
-            await page.goto(listUrl, { waitUntil: 'networkidle2', timeout: 30000 });
-
-            // Dismiss cookie popup if present
-            for (const sel of ['.cmplz-accept', '.cookiebot-accept', '#acceptBtn', 'button[class*="accept"]']) {
-                const btn = await page.$(sel);
-                if (btn) { await btn.click(); await delay(600); break; }
-            }
-
-            const found = await page.$$eval(
-                cfg.linkSelector,
-                (els, filterSrc) => {
-                    const fn = new Function('h', `return (${filterSrc})(h);`);
-                    return [...new Set(els.map(el => el.href))].filter(h => {
-                        try { return fn(h); } catch { return false; }
-                    });
-                },
-                cfg.linkFilter.toString()
-            );
-            found.forEach(l => links.add(l));
-        } catch (e) {
-            console.error(`  ⚠️  ${cfg.label} links error:`, e.message);
-        }
-    }
-    return [...links].slice(0, max);
 }
 
 async function parseWpRecipe(page, url) {
