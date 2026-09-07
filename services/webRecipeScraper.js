@@ -1162,9 +1162,9 @@ async function enforceRecipeCap(cap = RECIPE_CAP) {
  * @returns {Promise<{moved: number, total: number}>}
  */
 async function recategorizeStored() {
-    // Stored recipes keep no keywords field, so this re-files on the title and
-    // description alone — the same two hints that carry the dish name anyway.
-    const all = await Recipe.find({}, { title: 1, description: 1, category: 1 }).lean();
+    // The title is the only hint the classifier reads, so it is the only field
+    // this needs.
+    const all = await Recipe.find({}, { title: 1, category: 1 }).lean();
     const ops = [];
     const moves = new Map();
     for (const r of all) {

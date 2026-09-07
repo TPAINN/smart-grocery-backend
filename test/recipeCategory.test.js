@@ -25,8 +25,8 @@ test('an accented category word is recognised', () => {
 });
 
 test('the unaccented spelling still works', () => {
-  // Keywords arrive from the sites in every casing and accenting there is.
-  assert.equal(recipeCategory({ keywords: ['σαλατες'] }), 'Σαλάτες');
+  // Titles arrive from the sites in every casing and accenting there is.
+  assert.equal(recipeCategory({ title: 'ΣΑΛΑΤΕΣ ΤΟΥ ΚΑΛΟΚΑΙΡΙΟΥ' }), 'Σαλάτες');
   assert.equal(recipeCategory({ title: 'ΣΟΥΠΑ ΤΡΑΧΑΝΑΣ' }), 'Σούπες');
 });
 
@@ -39,15 +39,35 @@ test('the categories a Greek kitchen needs but nothing filed under', () => {
   assert.equal(recipeCategory({ title: 'Παστίτσιο' }), 'Ζυμαρικά');
 });
 
-test('ingredients do not decide the category', () => {
-  /* They used to be part of the hints, which was harmless only because the
-     accented patterns rarely fired. With the matching fixed, one spoonful of
-     ζάχαρη in a beef stew would file it under Επιδόρπια. What a dish IS lives
-     in its title, not in its shopping list. */
+test('only the title decides the category', () => {
+  /* Ingredients used to be part of the hints, which was harmless only because
+     the accented patterns rarely fired; with the matching repaired, a spoon of
+     ζάχαρη would file a beef stew under Επιδόρπια.
+
+     The description and the site's keywords went the same way, and that was
+     measured rather than assumed. On the first catalogue built with this
+     classifier, «ΒΡΑΣΤΟ ΚΡΕΑΣ ΚΑΙ ΜΟΣΧΑΡΙΣΙΟΣ ΖΩΜΟΣ» and
+     «ΡΕΒΥΘΟΚΕΦΤΕΔΕΣ & DIP ΜΕ ΤΥΡΙ ΚΡΕΜΑ» both landed under Σούπες, matched on
+     prose and SEO tags rather than on what the dish is. A title names the
+     dish; everything around it only mentions things. */
   assert.equal(
-    recipeCategory({ title: 'Μοσχάρι κοκκινιστό', ingredients: ['ζάχαρη', 'γλυκό κρασί', 'μαρούλι για σαλάτα'] }),
+    recipeCategory({
+      title: 'Μοσχάρι κοκκινιστό',
+      description: 'Σερβίρεται με σάλτσα από ζωμό και μια δροσερή σαλάτα',
+      keywords: ['σούπα', 'επιδόρπιο'],
+      ingredients: ['ζάχαρη', 'γλυκό κρασί'],
+    }),
     'Κυρίως',
   );
+});
+
+test('a soup word inside another dish name is not a soup', () => {
+  // «σουπιά» is cuttlefish. It was filed under Σούπες.
+  assert.equal(recipeCategory({ title: 'Σουπιά στο φούρνο με πιπεριές' }), 'Κυρίως');
+  assert.equal(recipeCategory({ title: 'Σουπιές κρασάτες' }), 'Κυρίως');
+  // The real thing still is one.
+  assert.equal(recipeCategory({ title: 'Σούπα βελουτέ με φάβα' }), 'Σούπες');
+  assert.equal(recipeCategory({ title: 'Φασολάδα της γιαγιάς' }), 'Σούπες');
 });
 
 test('a dessert wins over the salad in its own name', () => {
