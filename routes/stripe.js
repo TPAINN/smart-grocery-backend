@@ -1,11 +1,35 @@
-// routes/stripe.js — Stripe Checkout + Webhook for Καλαθάκι Premium
+// routes/getStripe().js — Stripe Checkout + Webhook for Καλαθάκι Premium
 const express = require('express');
 const router  = express.Router();
 const Stripe  = require('stripe');
 const User    = require('../models/User');
 const authMiddleware = require('../middleware/authMiddleware');
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+/* Built on demand, not at import.
+ *
+ * `new Stripe(undefined)` throws, and this module is required at the top of
+ * server.js, so a missing or rotated STRIPE_SECRET_KEY took down the entire
+ * API at boot — including the price and recipe endpoints, which are the whole
+ * public product and have nothing to do with payments. Verified: booting the
+ * server with every other variable set and this one absent dies on
+ * routes/getStripe().js:8 before a single route is mounted.
+ *
+ * Unconfigured, the payment routes now answer 503 and everything else serves
+ * normally. */
+let stripeClient = null;
+function getStripe() {
+  if (!process.env.STRIPE_SECRET_KEY) return null;
+  if (!stripeClient) stripeClient = new Stripe(process.env.STRIPE_SECRET_KEY);
+  return stripeClient;
+}
+
+/* Applied to every route in this file, so a new one cannot forget it. */
+router.use((req, res, next) => {
+  if (!getStripe()) {
+    return res.status(503).json({ message: 'Οι πληρωμές δεν είναι διαθέσιμες.' });
+  }
+  next();
+});
 
 // ── Stripe Product Catalog IDs ───────────────────────────────────────────────
 const PRICES = {
@@ -26,7 +50,7 @@ router.post('/create-checkout-session', authMiddleware, async (req, res) => {
     // Create or reuse Stripe customer
     let customerId = user.stripeCustomerId;
     if (!customerId) {
-      const customer = await stripe.customers.create({
+      const customer = await getStripe().customers.create({
         email: user.email,
         name: user.name,
         metadata: { userId: user._id.toString() },
@@ -65,7 +89,7 @@ router.post('/create-checkout-session', authMiddleware, async (req, res) => {
       }
     }
 
-    const session = await stripe.checkout.sessions.create(sessionParams);
+    const session = await getStripe().checkout.sessions.create(sessionParams);
     res.json({ url: session.url });
   } catch (err) {
     console.error('❌ Stripe checkout error:', err.message);
@@ -101,7 +125,7 @@ router.post('/cancel-subscription', authMiddleware, async (req, res) => {
     const user = await User.findById(req.userId);
     if (!user?.stripeSubscriptionId) return res.status(400).json({ message: 'Δεν βρέθηκε ενεργή συνδρομή.' });
 
-    await stripe.subscriptions.update(user.stripeSubscriptionId, { cancel_at_period_end: true });
+    await getStripe().subscriptions.update(user.stripeSubscriptionId, { cancel_at_period_end: true });
     res.json({ message: 'Η συνδρομή θα ακυρωθεί στο τέλος της τρέχουσας περιόδου.' });
   } catch (err) {
     console.error('❌ Cancel subscription error:', err.message);
@@ -131,7 +155,7 @@ router.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
     let verified = false;
     for (const secret of [webhookSecret, webhookSecretThin].filter(Boolean)) {
       try {
-        event = stripe.webhooks.constructEvent(req.body, sig, secret);
+        event = getStripe().webhooks.constructEvent(req.body, sig, secret);
         verified = true;
         break;
       } catch (_) {}

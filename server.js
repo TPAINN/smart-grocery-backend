@@ -542,13 +542,31 @@ app.use((err, req, res, next) => { // eslint-disable-line no-unused-vars
 });
 
 // ── Startup env validation ────────────────────────────────────────────────────
-const REQUIRED_ENV = ['MONGO_URI', 'JWT_SECRET', 'STRIPE_SECRET_KEY', 'STRIPE_WEBHOOK_SECRET'];
+/* Required means the service cannot answer at all without it.
+ *
+ * The Stripe keys used to be on this list, and in production a missing one
+ * called process.exit(1) — so the public catalogue, which is the entire
+ * product and has nothing to do with payments, refused to start over a
+ * payment feature nobody uses, and Render would restart it into the same
+ * failure. The payment routes now answer 503 on their own when unconfigured,
+ * which is the correct blast radius for that.
+ *
+ * MONGO_URI and JWT_SECRET stay: without the database there is nothing to
+ * serve, and without a signing secret every token check is unsafe. */
+const REQUIRED_ENV = ['MONGO_URI', 'JWT_SECRET'];
+const OPTIONAL_ENV = ['STRIPE_SECRET_KEY', 'STRIPE_WEBHOOK_SECRET'];
+
 const missing = REQUIRED_ENV.filter(k => !process.env[k]);
 if (missing.length > 0) {
   console.error(`❌ FATAL: Missing required environment variables: ${missing.join(', ')}`);
   console.error('   Set these in your Render environment before deploying.');
   // Don't exit in dev so the developer can still work; warn loudly in prod
   if (process.env.NODE_ENV === 'production') process.exit(1);
+}
+
+const unset = OPTIONAL_ENV.filter(k => !process.env[k]);
+if (unset.length > 0) {
+  console.warn(`⚠️  Not configured, so the features behind them are off: ${unset.join(', ')}`);
 }
 
 // ── Start ─────────────────────────────────────────────────────────────────────
