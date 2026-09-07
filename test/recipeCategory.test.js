@@ -39,24 +39,45 @@ test('the categories a Greek kitchen needs but nothing filed under', () => {
   assert.equal(recipeCategory({ title: 'Παστίτσιο' }), 'Ζυμαρικά');
 });
 
-test('only the title decides the category', () => {
-  /* Ingredients used to be part of the hints, which was harmless only because
-     the accented patterns rarely fired; with the matching repaired, a spoon of
-     ζάχαρη would file a beef stew under Επιδόρπια.
-
-     The description and the site's keywords went the same way, and that was
-     measured rather than assumed. On the first catalogue built with this
-     classifier, «ΒΡΑΣΤΟ ΚΡΕΑΣ ΚΑΙ ΜΟΣΧΑΡΙΣΙΟΣ ΖΩΜΟΣ» and
-     «ΡΕΒΥΘΟΚΕΦΤΕΔΕΣ & DIP ΜΕ ΤΥΡΙ ΚΡΕΜΑ» both landed under Σούπες, matched on
-     prose and SEO tags rather than on what the dish is. A title names the
-     dish; everything around it only mentions things. */
+test('the title decides first, and it decides alone', () => {
+  /* Ingredients were hints once, which would file any stew containing a spoon
+     of ζάχαρη under Επιδόρπια. Prose is nearly as bad: «ΒΡΑΣΤΟ ΚΡΕΑΣ ΚΑΙ
+     ΜΟΣΧΑΡΙΣΙΟΣ ΖΩΜΟΣ» landed under Σούπες because its description mentions
+     ζωμό, and «ΡΕΒΥΘΟΚΕΦΤΕΔΕΣ & DIP» because of the site's SEO tags. */
   assert.equal(
     recipeCategory({
       title: 'Μοσχάρι κοκκινιστό',
       description: 'Σερβίρεται με σάλτσα από ζωμό και μια δροσερή σαλάτα',
-      keywords: ['σούπα', 'επιδόρπιο'],
       ingredients: ['ζάχαρη', 'γλυκό κρασί'],
     }),
+    'Κυρίως',
+  );
+});
+
+test('prose is a fallback, and only for the words that name a category', () => {
+  /* Title-only was tried and was worse: it sent 36 desserts back to Κυρίως in
+     one pass over the live catalogue, because a title like «Τιραμισού» or
+     «Μπανόφι» contains no dessert word at all while its description opens with
+     «ένα γλυκό». So when the title says nothing, the description and keywords
+     are read — but only for the handful of words that literally name a
+     category, never for the dish-name heuristics that caused the false
+     positives above. */
+  assert.equal(
+    recipeCategory({ title: 'Τιραμισού', description: 'Το πιο κλασικό ιταλικό γλυκό' }),
+    'Επιδόρπια',
+  );
+  assert.equal(
+    recipeCategory({ title: 'Μπανόφι', keywords: ['επιδόρπια', 'εύκολο'] }),
+    'Επιδόρπια',
+  );
+  // ζωμός names an ingredient, not a category, so it stays out of the fallback.
+  assert.equal(
+    recipeCategory({ title: 'Βραστό κρέας', description: 'και μοσχαρίσιος ζωμός' }),
+    'Κυρίως',
+  );
+  // Neither does τραχανάς, which is as often a meatball as a soup.
+  assert.equal(
+    recipeCategory({ title: 'Αραντσίνι', keywords: ['τραχανάς', 'κεφτέδες'] }),
     'Κυρίως',
   );
 });
