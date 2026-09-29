@@ -111,13 +111,6 @@ const corsOptions = {
 app.options(/.*/, cors(corsOptions));
 app.use(cors(corsOptions));
 
-// ── Stripe webhook needs raw body — mount BEFORE express.json() ────────────
-const stripeRoutes = require('./routes/stripe');
-app.use('/api/stripe/webhook', express.raw({ type: 'application/json' }), (req, res, next) => {
-  // Forward to the webhook handler in stripe routes
-  next();
-});
-
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
@@ -293,7 +286,6 @@ app.use('/api/recipes',   cacheMiddleware(1800), recipeRoutes);  // 30 min — r
 app.use('/api/chat',      chatRoutes);
 app.use('/api/meal-plan', aiMealPlanLimiter, mealPlanRoutes);
 app.use('/api/favorites', favoritesRoutes);
-app.use('/api/stripe',    stripeRoutes);
 app.use('/api/barcode',   barcodeRoutes);  // USDA + Edamam fallback for barcode scanner
 app.use('/api/meals',          mealsRoutes);         // TheMealDB proxy (Greek + Mediterranean recipes)
 app.use('/api/push',           pushRoutes);          // Web Push subscriptions
@@ -542,19 +534,11 @@ app.use((err, req, res, next) => { // eslint-disable-line no-unused-vars
 });
 
 // ── Startup env validation ────────────────────────────────────────────────────
-/* Required means the service cannot answer at all without it.
- *
- * The Stripe keys used to be on this list, and in production a missing one
- * called process.exit(1) — so the public catalogue, which is the entire
- * product and has nothing to do with payments, refused to start over a
- * payment feature nobody uses, and Render would restart it into the same
- * failure. The payment routes now answer 503 on their own when unconfigured,
- * which is the correct blast radius for that.
- *
- * MONGO_URI and JWT_SECRET stay: without the database there is nothing to
- * serve, and without a signing secret every token check is unsafe. */
+/* Required means the service cannot answer at all without it: without the
+ * database there is nothing to serve, and without a signing secret every token
+ * check is unsafe. Nothing else may stop the public catalogue from starting. */
 const REQUIRED_ENV = ['MONGO_URI', 'JWT_SECRET'];
-const OPTIONAL_ENV = ['STRIPE_SECRET_KEY', 'STRIPE_WEBHOOK_SECRET'];
+const OPTIONAL_ENV = [];
 
 const missing = REQUIRED_ENV.filter(k => !process.env[k]);
 if (missing.length > 0) {

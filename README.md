@@ -8,7 +8,6 @@ Backend για το **[Καλαθάκι](https://github.com/TPAINN/smart-grocery
 [![MongoDB](https://img.shields.io/badge/MongoDB-Mongoose%209-47A248?logo=mongodb&logoColor=white)](https://mongoosejs.com)
 [![Puppeteer](https://img.shields.io/badge/Puppeteer-scrapers-40B5A4?logo=puppeteer&logoColor=white)](https://pptr.dev)
 [![Socket.IO](https://img.shields.io/badge/Socket.IO-realtime-010101?logo=socketdotio&logoColor=white)](https://socket.io)
-[![Stripe](https://img.shields.io/badge/Stripe-payments-635bff?logo=stripe&logoColor=white)](https://stripe.com)
 
 </div>
 
@@ -20,7 +19,6 @@ Backend για το **[Καλαθάκι](https://github.com/TPAINN/smart-grocery
 - **Greek-aware search** — NFD normalization, υ/ι folding, scoring
 - **AI provider chain** — Claude → Gemini → Groq → Bytez με rate tracking & graceful fallback (meal plans, ανάλυση πιάτου, μεταφράσεις)
 - **Auth** — JWT (30d), bcrypt, email verification, 14 μέρες δωρεάν trial με αυτόματο reminder email πριν τη λήξη
-- **Premium** — Stripe Checkout (monthly / yearly / lifetime) + webhooks
 - **Real-time** — Socket.IO κοινό καλάθι ανά shareKey, friends, chat
 - **Push** — web-push notifications
 
@@ -36,7 +34,6 @@ Backend για το **[Καλαθάκι](https://github.com/TPAINN/smart-grocery
 | `POST /api/mealplan` | AI εβδομαδιαίο πλάνο (premium/trial) |
 | `POST /api/platescanner/*` | AI ανάλυση πιάτου (φωτο ή κείμενο) |
 | `GET  /api/barcode/:code` | Στοιχεία προϊόντος από barcode |
-| `POST /api/stripe/*` | Checkout sessions + webhooks |
 
 ## 🚀 Setup
 
@@ -59,7 +56,7 @@ node scripts/test-trial-reminder.js you@mail.com  # δοκιμή SMTP/reminder e
 
 Όλα τα secrets στο `.env` (**ποτέ** στο git — δες `.env.example`). Κύρια:
 
-`MONGO_URI` · `JWT_SECRET` · `ANTHROPIC_API_KEY` (κύριος AI provider) · `GEMINI_API_KEY` · `GROQ_API_KEY` · `STRIPE_SECRET_KEY` + webhook secrets · `SMTP_*` (Gmail app password) · `ALLOWED_ORIGINS`
+`MONGO_URI` · `JWT_SECRET` · `ANTHROPIC_API_KEY` (κύριος AI provider) · `GEMINI_API_KEY` · `GROQ_API_KEY` · `SMTP_*` (Gmail app password) · `ALLOWED_ORIGINS`
 
 ## 🔒 Ασφάλεια
 
