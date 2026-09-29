@@ -65,7 +65,7 @@ const safeUser = (u) => {
     name:         u.name,
     email:        u.email,
     isPremium:    effectivePremium,   // true if permanent OR trial active
-    isRealPremium: u.isPremium,       // true only if manually granted / Stripe paid
+    isRealPremium: u.isPremium,       // true only if granted by the admin
     isOnTrial:    trialActive && !u.isPremium,
     trialDaysLeft,
     trialEndsAt:  u.trialEndsAt,
