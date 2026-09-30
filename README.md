@@ -67,7 +67,7 @@ node scripts/test-trial-reminder.js you@mail.com  # δοκιμή SMTP/reminder e
 
 ## ☁️ Deploy
 
-Render (web service + `render.yaml` Blueprint). Scrapers τρέχουν και από GitHub Actions (καθημερινά 08:00 Ελλάδας). Cron in-process: scraper 08:20, trial reminders 10:00.
+Render, **δωρεάν πλάνο** (web service, `render.yaml`). Οι scrapers τρέχουν **μόνο** σε GitHub Actions (καθημερινά 08:00 Ελλάδας), δωρεάν επειδή το repo είναι δημόσιο. Κανένα cron στο Render: δεν έχει δωρεάν πλάνο για cron. Cron in-process: scraper 08:20, trial reminders 10:00.
 
 ---
 

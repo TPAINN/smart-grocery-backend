@@ -1,82 +1,26 @@
-# render.yaml — Render Infrastructure as Code
-# Defines the Smart Grocery daily scraper as a Render Cron Job.
+# render.yaml: the API on Render's FREE plan. Nothing here costs money.
 #
-# ── HOW TO DEPLOY ────────────────────────────────────────────────────────────
-#  Option A — Blueprint (recommended):
-#    1. Render dashboard → "New +" → "Blueprint"
-#    2. Connect the smart-grocery-backend GitHub repo
-#    3. Render auto-detects this file and creates the service
-#    4. Go to the service → "Environment" → set MONGO_URI as a Secret
-#    5. Click "Manual Run" to verify before the first scheduled run
+# The daily price scraper does NOT run on Render: Render has no free plan for
+# cron jobs (Starter is $7/month). It runs on GitHub Actions instead
+# (.github/workflows/daily-scraper.yml), which is free and unlimited because
+# this repository is public. Do not add a `type: cron` service here.
 #
-#  Option B — Manual service + env vars:
-#    1. Render dashboard → "New +" → "Cron Job"
-#    2. Connect repo, branch: main
-#    3. Build: npm ci
-#    4. Command: node renderRunAll.js
-#    5. Schedule: 0 1 * * *
-#    6. Add env vars from the list below
-#
-# ── PLAN NOTES ───────────────────────────────────────────────────────────────
-#  Cron Jobs require Starter plan ($7/mo) minimum — Free plan doesn't support them.
-#  Starter = 512MB RAM, 0.5 CPU.  3 concurrent Chrome instances ≈ 450-600MB peak.
-#  If you see OOM kills in the logs → upgrade to Standard (2GB) and set
-#    SCRAPER_MAX_CONCURRENCY=6
-# ─────────────────────────────────────────────────────────────────────────────
+# The free web service sleeps after 15 minutes idle and wakes on the next
+# request (~30 s). The app reads prices from its own Vercel functions first,
+# so a sleeping API only matters as a fallback.
 
 services:
-  - type: cron
-    name: grocery-daily-scraper
-
-    # Node.js runtime (Render auto-detects the version from package.json engines field
-    # or uses the latest LTS if not specified)
+  - type: web
+    name: my-smart-grocery-api
     runtime: node
-
-    plan: starter      # Minimum required for cron jobs. Upgrade to "standard" for more RAM.
-    region: frankfurt  # Closest Render region to Greece & MongoDB Atlas EU (~40ms RTT)
-
-    # ── Schedule ────────────────────────────────────────────────────────────
-    # 01:00 UTC  =  04:00 EET (summer, UTC+3)  =  03:00 EET (winter, UTC+2)
-    # Scrapes happen overnight during lowest-traffic hours.
-    # Adjust if you want a different time — always use UTC here.
-    schedule: "0 1 * * *"
-
-    # ── Build ─────────────────────────────────────────────────────────────────
-    # npm ci: clean, reproducible, faster than npm install.
-    # Puppeteer v24 automatically downloads Chromium during postinstall.
-    # Render caches node_modules between builds (no re-download unless package.json changes).
+    plan: free
+    region: frankfurt
     buildCommand: npm ci
-
-    # ── Run ───────────────────────────────────────────────────────────────────
-    # renderRunAll.js: Render-optimized entry point (watchdog, structured logs, no dotenv)
-    startCommand: node renderRunAll.js
-
-    # ── Environment Variables ─────────────────────────────────────────────────
+    startCommand: node server.js
     envVars:
-      # ── REQUIRED SECRET — set value in Render dashboard (Environment tab) ──
-      - key: MONGO_URI
-        sync: false   # "sync: false" = Render knows it's a secret you'll paste manually
-
-      # ── Node / runtime ───────────────────────────────────────────────────────
       - key: NODE_ENV
         value: production
-
-      # Limit Node.js heap to 400MB → leaves ~112MB headroom for OS + Chrome
-      # on a 512MB Starter instance. Increase to 1800 if on Standard plan.
-      - key: NODE_OPTIONS
-        value: "--max-old-space-size=400"
-
-      # ── Scraper tuning ────────────────────────────────────────────────────────
-      # Forces the scraper to use Render-safe flags (--no-sandbox, headless, etc.)
-      - key: SCRAPER_PROFILE
-        value: render
-
-      # 3 parallel Chrome browsers × ~160MB = ~480MB.
-      # Safe ceiling for Starter (512MB). Raise to 4-6 on Standard plan.
-      - key: SCRAPER_MAX_CONCURRENCY
-        value: "3"
-
-      # Tell Puppeteer where to cache downloaded Chrome.
-      # /opt/render/project/src is the project root on Render — persisted in build cache.
-      - key: PUPPETEER_CACHE_DIR
-        value: /opt/render/project/src/.puppeteer-cache
+      - key: MONGO_URI
+        sync: false
+      - key: JWT_SECRET
+        sync: false
