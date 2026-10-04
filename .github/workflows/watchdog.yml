@@ -1,0 +1,54 @@
+name: 🐕 Watchdog
+
+# Keeps the daily prices flowing without anyone watching.
+#
+# 1. Keep-alive. GitHub disables scheduled workflows in a public repository after
+#    60 days without a commit. Re-enabling them every day resets that clock, so
+#    the scraper never silently stops.
+# 2. Freshness. Reads what the app itself shows (kalathaki.vercel.app/api/stats).
+#    If any chain's newest price is older than 36 h, the scraper is started again
+#    and this run fails, which makes GitHub send a failure email.
+#
+# Runs at 15:00 UTC, well after the 05:00 scrape (GitHub often starts that one
+# hours late). Free: this repository is public.
+
+on:
+  schedule:
+    - cron: '0 15 * * *'
+  workflow_dispatch:
+    inputs:
+      max_age_hours:
+        description: 'Treat prices older than this as stale (lower it to test the alert)'
+        default: '36'
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+      MAX_AGE_HOURS: ${{ inputs.max_age_hours || '36' }}
+    steps:
+      - name: Keep the schedules alive
+        run: |
+          for wf in daily-scraper.yml weekly-recipes.yml storage-maintenance.yml watchdog.yml; do
+            gh api -X PUT "repos/$REPO/actions/workflows/$wf/enable" && echo "enabled $wf"
+          done
+
+      - name: Check that every chain has fresh prices
+        run: |
+          stats=$(curl -fsS --retry 3 --max-time 30 https://kalathaki.vercel.app/api/stats)
+          echo "$stats" | jq -r '.byChain[] | "\(.chain)\t\(.count)\t\(.newest)"'
+          stale=$(echo "$stats" | jq -r --argjson now "$(date +%s)" --argjson max "$MAX_AGE_HOURS" \
+            '[.byChain[] | select(((.newest // "1970-01-01T00:00:00Z") | sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601) < ($now - $max*3600)) | .chain] | join(", ")')
+          if [ -n "$stale" ]; then
+            echo "::error::Stale prices (older than $MAX_AGE_HOURS h): $stale. Restarting the scraper."
+            gh workflow run daily-scraper.yml --repo "$REPO"
+            exit 1
+          fi
+          echo "All chains fresh."
