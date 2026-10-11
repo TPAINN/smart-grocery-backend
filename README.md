@@ -1,30 +1,20 @@
-<div align="center">
+# Καλαθάκι API
 
-<img src="docs/banner.svg" alt="Καλαθάκι API — 71.000+ τιμές από 8 ελληνικά σούπερ μάρκετ" width="100%">
+Backend για το Καλαθάκι: τιμές από 8 ελληνικά σούπερ μάρκετ σε μία αναζήτηση, AI διατροφή και κοινό καλάθι σε πραγματικό χρόνο.
 
-# 🛒 Smart Grocery API
+Εφαρμογή: [kalathaki.vercel.app](https://kalathaki.vercel.app) | Stack: Node.js, Express 5, MongoDB (Mongoose 9), Puppeteer, Socket.IO
 
-Backend για το **[Καλαθάκι](https://github.com/TPAINN/smart-grocery-frontend)** — τιμές από 8 ελληνικά σούπερ μάρκετ, AI διατροφή, real-time κοινό καλάθι.
+![Καλαθάκι](docs/screenshot.png)
+## Τι κάνει
 
-[![Node](https://img.shields.io/badge/Node.js-Express%205-339933?logo=nodedotjs&logoColor=white)](https://expressjs.com)
-[![MongoDB](https://img.shields.io/badge/MongoDB-Mongoose%209-47A248?logo=mongodb&logoColor=white)](https://mongoosejs.com)
-[![Puppeteer](https://img.shields.io/badge/Puppeteer-scrapers-40B5A4?logo=puppeteer&logoColor=white)](https://pptr.dev)
-[![Socket.IO](https://img.shields.io/badge/Socket.IO-realtime-010101?logo=socketdotio&logoColor=white)](https://socket.io)
+- **Scrapers** (Puppeteer + stealth) για Lidl, ΑΒ, Σκλαβενίτη, MyMarket, Μασούτη, Κρητικό, Γαλαξία, Market In - καθημερινό cron + GitHub Actions
+- **Greek-aware search** - NFD normalization, υ/ι folding, scoring
+- **AI provider chain** - Claude → Gemini → Groq → Bytez με rate tracking & graceful fallback (meal plans, ανάλυση πιάτου, μεταφράσεις)
+- **Auth** - JWT (30d), bcrypt, email verification, 14 μέρες δωρεάν trial με αυτόματο reminder email πριν τη λήξη
+- **Real-time** - Socket.IO κοινό καλάθι ανά shareKey, friends, chat
+- **Push** - web-push notifications
 
-</div>
-
----
-
-## 🧩 Τι κάνει
-
-- **Scrapers** (Puppeteer + stealth) για Lidl, ΑΒ, Σκλαβενίτη, MyMarket, Μασούτη, Κρητικό, Γαλαξία, Market In — καθημερινό cron + GitHub Actions
-- **Greek-aware search** — NFD normalization, υ/ι folding, scoring
-- **AI provider chain** — Claude → Gemini → Groq → Bytez με rate tracking & graceful fallback (meal plans, ανάλυση πιάτου, μεταφράσεις)
-- **Auth** — JWT (30d), bcrypt, email verification, 14 μέρες δωρεάν trial με αυτόματο reminder email πριν τη λήξη
-- **Real-time** — Socket.IO κοινό καλάθι ανά shareKey, friends, chat
-- **Push** — web-push notifications
-
-## 🚏 API (κύριες διαδρομές)
+## API (κύριες διαδρομές)
 
 | Route | Τι κάνει |
 |---|---|
@@ -37,7 +27,7 @@ Backend για το **[Καλαθάκι](https://github.com/TPAINN/smart-grocery
 | `POST /api/platescanner/*` | AI ανάλυση πιάτου (φωτο ή κείμενο) |
 | `GET  /api/barcode/:code` | Στοιχεία προϊόντος από barcode |
 
-## 🚀 Setup
+## Setup
 
 ```bash
 npm install
@@ -54,20 +44,20 @@ npm run test:scraping          # regression tests scrapers
 node scripts/test-trial-reminder.js you@mail.com  # δοκιμή SMTP/reminder email
 ```
 
-## ⚙️ Environment
+## Environment
 
-Όλα τα secrets στο `.env` (**ποτέ** στο git — δες `.env.example`). Κύρια:
+Όλα τα secrets στο `.env` (**ποτέ** στο git - δες `.env.example`). Κύρια:
 
 `MONGO_URI` · `JWT_SECRET` · `ANTHROPIC_API_KEY` (κύριος AI provider) · `GEMINI_API_KEY` · `GROQ_API_KEY` · `SMTP_*` (Gmail app password) · `ALLOWED_ORIGINS`
 
-## 🔒 Ασφάλεια
+## Ασφάλεια
 
 - Rate limiting (auth: 10/15min), CORS allowlist, security headers
 - Admin endpoints: `x-admin-secret` header με constant-time σύγκριση
 - bcrypt(10) passwords, JWT 30d expiry
 - AI endpoints πίσω από auth + premium gate
 
-## ☁️ Deploy
+## Deploy
 
 Render, **δωρεάν πλάνο** (web service, `render.yaml`). Οι scrapers τρέχουν **μόνο** σε GitHub Actions (καθημερινά 08:00 Ελλάδας), δωρεάν επειδή το repo είναι δημόσιο. Κανένα cron στο Render: δεν έχει δωρεάν πλάνο για cron. Cron in-process: scraper 08:20, trial reminders 10:00.
 
