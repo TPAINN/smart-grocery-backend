@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src="docs/banner.svg" alt="Καλαθάκι API — 71.000+ τιμές από 8 ελληνικά σούπερ μάρκετ" width="100%">
+
 # 🛒 Smart Grocery API
 
 Backend για το **[Καλαθάκι](https://github.com/TPAINN/smart-grocery-frontend)** — τιμές από 8 ελληνικά σούπερ μάρκετ, AI διατροφή, real-time κοινό καλάθι.
