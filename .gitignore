@@ -46,3 +46,15 @@ build/
 coverage/
 .claude
 .swarm
+
+# secrets and credentials: never commit
+!.env.sample
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+*.keystore
+service-account*.json
+*.kdbx
+.npmrc
