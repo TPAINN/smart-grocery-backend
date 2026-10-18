@@ -44,7 +44,6 @@ Thumbs.db
 dist/
 build/
 coverage/
-.claude
 .swarm
 
 # secrets and credentials: never commit
@@ -58,3 +57,5 @@ coverage/
 service-account*.json
 *.kdbx
 .npmrc
+
+.vercel/
