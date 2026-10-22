@@ -10,9 +10,6 @@ const { JWT_SECRET } = require('../config/jwt');
 
 const router = express.Router();
 
-let _io = null;
-router.setIO = (io) => { _io = io; };
-
 // ── Strict Rate Limiter (μόνο για register & login) ───────────────────────────
 // 10 προσπάθειες ανά IP / 15 λεπτά — ανά πραγματική IP (trust proxy στο server.js)
 const strictLimiter = rateLimit({
@@ -198,7 +195,6 @@ router.get('/search', authMiddleware, async (req, res) => {
 // When A adds B:
 //  • B is added to A's friends array in DB
 //  • A is added to B's friends array in DB  ← the key fix
-//  • B gets a real-time socket event if online
 router.post('/add-friend', authMiddleware, async (req, res) => {
   try {
     const { targetShareKey } = req.body;
@@ -230,14 +226,6 @@ router.post('/add-friend', authMiddleware, async (req, res) => {
     if (!bAlreadyHasA) {
       await User.findByIdAndUpdate(target._id, {
         $push: { friends: { shareKey: me.shareKey, username: me.name, addedAt: new Date() } }
-      });
-    }
-
-    // Notify B in real-time (if online)
-    if (_io) {
-      _io.to(`user_${target.shareKey}`).emit('friend_added', {
-        targetShareKey: target.shareKey,
-        from: { shareKey: me.shareKey, username: me.name, name: me.name },
       });
     }
 
@@ -388,12 +376,6 @@ router.post('/notify-friend', authMiddleware, async (req, res) => {
     }
     if (!me.friends.some(f => f.shareKey === target.shareKey)) {
       await User.findByIdAndUpdate(me._id, { $push: { friends: { shareKey: target.shareKey, username: target.name, addedAt: new Date() } } });
-    }
-    if (_io) {
-      _io.to(`user_${target.shareKey}`).emit('friend_added', {
-        targetShareKey: target.shareKey,
-        from: { shareKey: me.shareKey, username: me.name, name: me.name },
-      });
     }
     res.json({ success: true, target: { name: target.name, shareKey: target.shareKey } });
   } catch (err) {
